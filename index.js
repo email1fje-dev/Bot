@@ -79,7 +79,7 @@ client.on("interactionCreate", async interaction => {
   try {
     await channel.send({
       content: message,
-      allowedMentions: { parse: [] }
+      allowedMentions: { parse: ["users", "roles", "everyone"] }
     });
 
     await interaction.reply({
