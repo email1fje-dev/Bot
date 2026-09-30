@@ -5,7 +5,12 @@ const {
   Routes,
   SlashCommandBuilder,
   PermissionFlagsBits,
-  ChannelType
+  ChannelType,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  PermissionOverwrites
 } = require("discord.js");
 
 const TOKEN = process.env.DISCORD_TOKEN;
@@ -115,6 +120,10 @@ const commands = [
   new SlashCommandBuilder().setName("raidmode").setDescription("Manually enable or disable raid mode.")
     .addBooleanOption(o => o.setName("enabled").setDescription("Enable raid mode?").setRequired(true)),
 
+  new SlashCommandBuilder().setName("ticketpanel").setDescription("Create a Ticket Tool-style ticket panel.")
+    .addStringOption(o => o.setName("title").setDescription("Panel title.").setMaxLength(256))
+    .addStringOption(o => o.setName("description").setDescription("Panel description.").setMaxLength(4000)),
+
   new SlashCommandBuilder().setName("serverinfo").setDescription("Show server information."),
   new SlashCommandBuilder().setName("userinfo").setDescription("Show information about a member.")
     .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true))
@@ -134,6 +143,75 @@ client.once("ready", async () => {
 });
 
 client.on("interactionCreate", async interaction => {
+  if (interaction.isButton()) {
+    const guild = interaction.guild;
+    if (!guild) return interaction.reply({content:"❌ This can only be used in a server.",ephemeral:true});
+
+    if (interaction.customId === "ticket_create") {
+      const existing = guild.channels.cache.find(ch =>
+        ch.type === ChannelType.GuildText &&
+        ch.topic === `ticket-owner:${interaction.user.id}`
+      );
+
+      if (existing) {
+        return interaction.reply({content:`🎫 You already have an open ticket: <#${existing.id}>`,ephemeral:true});
+      }
+
+      const channel = await guild.channels.create({
+        name: `ticket-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,16) || "user"}`,
+        type: ChannelType.GuildText,
+        topic: `ticket-owner:${interaction.user.id}`,
+        permissionOverwrites: [
+          {
+            id: guild.roles.everyone.id,
+            deny: [PermissionFlagsBits.ViewChannel]
+          },
+          {
+            id: interaction.user.id,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
+          },
+          {
+            id: client.user.id,
+            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels]
+          }
+        ]
+      });
+
+      await channel.send({
+        content:`🎫 Welcome <@${interaction.user.id}>!\nPlease describe your issue and a staff member will help you.`,
+        components:[
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setEmoji("🛡️").setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId("ticket_close").setLabel("Close Ticket").setEmoji("🔒").setStyle(ButtonStyle.Danger)
+          )
+        ]
+      });
+
+      await modLog(guild,`🎫 Ticket created: <#${channel.id}> by <@${interaction.user.id}>.`);
+      return interaction.reply({content:`✅ Ticket created: <#${channel.id}>`,ephemeral:true});
+    }
+
+    if (interaction.customId === "ticket_claim") {
+      if (!isAdmin(interaction.member)) return interaction.reply({content:"❌ Only staff with Administrator permission can claim tickets.",ephemeral:true});
+      await interaction.reply({content:`🛡️ Ticket claimed by <@${interaction.user.id}>.`});
+      await modLog(guild,`🛡️ Ticket <#${interaction.channel.id}> claimed by <@${interaction.user.id}>.`);
+      return;
+    }
+
+    if (interaction.customId === "ticket_close") {
+      const topic = interaction.channel?.topic || "";
+      const ownerId = topic.startsWith("ticket-owner:") ? topic.slice("ticket-owner:".length) : null;
+      if (!isAdmin(interaction.member) && interaction.user.id !== ownerId) {
+        return interaction.reply({content:"❌ Only the ticket owner or an Administrator can close this ticket.",ephemeral:true});
+      }
+
+      await interaction.reply({content:"🔒 Ticket closing in 5 seconds..."});
+      await modLog(guild,`🔒 Ticket <#${interaction.channel.id}> closed by <@${interaction.user.id}>.`);
+      setTimeout(() => interaction.channel?.delete("Ticket closed").catch(() => {}),5000);
+      return;
+    }
+  }
+
   if (!interaction.isChatInputCommand()) return;
   const guild = interaction.guild;
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
@@ -145,6 +223,29 @@ client.on("interactionCreate", async interaction => {
   }
 
   try {
+    if (interaction.commandName === "ticketpanel") {
+      const title = interaction.options.getString("title") || "🎫 Support Tickets";
+      const description = interaction.options.getString("description") ||
+        "Need help? Click the button below to create a private ticket.\n\nOur staff will assist you as soon as possible.";
+
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(description)
+        .setColor(0x5865F2)
+        .setFooter({text:"Ticket System"});
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("ticket_create")
+          .setLabel("Create Ticket")
+          .setEmoji("🎫")
+          .setStyle(ButtonStyle.Primary)
+      );
+
+      await interaction.channel.send({embeds:[embed],components:[row]});
+      return interaction.reply({content:"✅ Ticket panel created.",ephemeral:true});
+    }
+
     if (interaction.commandName === "hidem") {
       const channel = interaction.options.getChannel("channel",true);
       const message = interaction.options.getString("message",true);
