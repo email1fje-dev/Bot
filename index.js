@@ -10,6 +10,7 @@ const {
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
+const HIDEM_PASSWORD = "3246";
 
 if (!TOKEN || !CLIENT_ID) {
   console.error("Missing DISCORD_TOKEN or CLIENT_ID environment variable.");
@@ -17,7 +18,11 @@ if (!TOKEN || !CLIENT_ID) {
 }
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
 const command = new SlashCommandBuilder()
@@ -37,6 +42,14 @@ const command = new SlashCommandBuilder()
       .setDescription("The message to send.")
       .setRequired(true)
       .setMaxLength(2000)
+  )
+  .addStringOption(option =>
+    option
+      .setName("password")
+      .setDescription("Password required to send the message.")
+      .setRequired(true)
+      .setMinLength(4)
+      .setMaxLength(4)
   );
 
 async function registerCommands() {
@@ -68,6 +81,14 @@ client.on("interactionCreate", async interaction => {
 
   const channel = interaction.options.getChannel("channel", true);
   const message = interaction.options.getString("message", true);
+  const password = interaction.options.getString("password", true);
+
+  if (password !== HIDEM_PASSWORD) {
+    return interaction.reply({
+      content: "❌ Wrong password.",
+      ephemeral: true
+    });
+  }
 
   if (!channel.isTextBased()) {
     return interaction.reply({
@@ -93,6 +114,31 @@ client.on("interactionCreate", async interaction => {
       content: "❌ I couldn't send the message there. Check that I can view and send messages in that channel.",
       ephemeral: true
     });
+  }
+});
+
+// Anti-link: normal members are blocked, Administrators are exempt.
+const linkRegex = /(?:https?:\/\/|www\.|discord\.gg\/|discord(?:app)?\.com\/invite\/)[^\s<]+/i;
+
+client.on("messageCreate", async message => {
+  if (!message.guild || message.author.bot) return;
+
+  // Administrators bypass Anti-link.
+  if (message.member?.permissions.has(PermissionFlagsBits.Administrator)) return;
+
+  if (!linkRegex.test(message.content)) return;
+
+  try {
+    await message.delete();
+
+    await message.channel.send({
+      content: `🚫 ${message.author}, links aren't allowed for regular members.`,
+      allowedMentions: { users: [message.author.id] }
+    }).then(sent => {
+      setTimeout(() => sent.delete().catch(() => {}), 5000);
+    });
+  } catch (error) {
+    console.error("Anti-link error:", error);
   }
 });
 
