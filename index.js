@@ -320,6 +320,25 @@ async function sendLogEmbed(guild, type, embed) {
   await channel.send({embeds:[embed]}).catch(() => {});
 }
 
+async function lockLogChannelToAdmins(channel, guild) {
+  await channel.permissionOverwrites.edit(guild.roles.everyone.id, {
+    ViewChannel:false,
+    SendMessages:false
+  }).catch(() => {});
+  for (const role of guild.roles.cache.values()) {
+    if (role.id === guild.roles.everyone.id || role.managed) continue;
+    await channel.permissionOverwrites.edit(role.id, {
+      ViewChannel:false
+    }).catch(() => {});
+  }
+  await channel.permissionOverwrites.edit(client.user.id, {
+    ViewChannel:true,
+    SendMessages:true,
+    ReadMessageHistory:true,
+    ManageChannels:true
+  }).catch(() => {});
+}
+
 async function setupLogChannels(guild) {
   const definitions = [
     {key:"member", name:"member-logs"},
@@ -348,6 +367,7 @@ async function setupLogChannels(guild) {
         reason:"Create bot log channels"
       });
     }
+    await lockLogChannelToAdmins(channel, guild);
     result[def.key] = channel.id;
   }
   const s = getSettings(guild.id);
