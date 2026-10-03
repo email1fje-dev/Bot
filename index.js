@@ -46,13 +46,13 @@ const inviteCounts = new Map();
 const levelData = new Map();
 const levelCooldown = new Map();
 const LEVEL_ROLES = [
-  {level:5,name:"Novice"},
-  {level:10,name:"Arcane"},
-  {level:20,name:"Mystic"},
-  {level:30,name:"Ascendant"},
-  {level:50,name:"Celestial"},
-  {level:75,name:"Immortal"},
-  {level:100,name:"Legend"}
+  {level:5,name:"Novice",color:0x95A5A6,emoji:"🌱"},
+  {level:10,name:"Arcane",color:0x3498DB,emoji:"🔮"},
+  {level:20,name:"Mystic",color:0x9B59B6,emoji:"🌙"},
+  {level:30,name:"Ascendant",color:0x1ABC9C,emoji:"⚡"},
+  {level:50,name:"Celestial",color:0xF1C40F,emoji:"☀️"},
+  {level:75,name:"Immortal",color:0xE67E22,emoji:"🔥"},
+  {level:100,name:"Legend",color:0xE91E63,emoji:"👑"}
 ];
 
 function getLevelInfo(guildId, userId) {
@@ -66,10 +66,23 @@ function levelFromXP(xp) {
   return Math.max(1, Math.floor(Math.sqrt(xp / 100)) + 1);
 }
 
-async function ensureLevelRole(guild, roleInfo) {
-  const existing = guild.roles.cache.find(r => r.name === roleInfo.name && r.managed === false);
-  if (existing) return existing;
-  return guild.roles.create({name:roleInfo.name,reason:"Level system role"}).catch(() => null);
+async function ensureLevelRole(guild, roleInfo, repair = false) {
+  let role = guild.roles.cache.find(r => r.name === roleInfo.name && r.managed === false);
+  if (!role) {
+    role = await guild.roles.create({
+      name: roleInfo.name,
+      color: roleInfo.color,
+      unicodeEmoji: roleInfo.emoji,
+      reason: "Level system role"
+    }).catch(() => null);
+  } else if (repair) {
+    await role.edit({
+      color: roleInfo.color,
+      unicodeEmoji: roleInfo.emoji,
+      reason: "Repair level system role"
+    }).catch(() => {});
+  }
+  return role;
 }
 
 async function applyLevelRole(member, level) {
@@ -215,6 +228,10 @@ const commands = [
   new SlashCommandBuilder().setName("levelsetup").setDescription("Create and enable the level-up roles.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString()),
 
+  new SlashCommandBuilder().setName("setuplevel").setDescription("Create or repair the Level Up system.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addSubcommand(sub => sub.setName("repair").setDescription("Repair Level Up roles, colors, and icons.")),
+
   new SlashCommandBuilder().setName("serverinfo").setDescription("Show server information."),
   new SlashCommandBuilder().setName("userinfo").setDescription("Show information about a member.")
     .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true))
@@ -323,7 +340,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","setlevelchannel","config","raidmode","ticketpanel","rules","levelsetup"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","setlevelchannel","config","raidmode","ticketpanel","rules","levelsetup","setuplevel"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -491,6 +508,11 @@ client.on("interactionCreate", async interaction => {
       if (enabled) raidMode.add(guild.id); else raidMode.delete(guild.id);
       await modLog(guild,`${enabled ? "🚨" : "🟢"} Raid mode ${enabled ? "enabled" : "disabled"} by <@${interaction.user.id}>.`);
       return interaction.reply({content:enabled ? "🚨 Raid mode enabled." : "🟢 Raid mode disabled.",ephemeral:true});
+    }
+
+    if (interaction.commandName === "setuplevel") {
+      for (const roleInfo of LEVEL_ROLES) await ensureLevelRole(guild, roleInfo, true);
+      return interaction.reply({content:"🔧✨ **Level system repaired!**\n\nAll Level roles were created/fixed with their colors and icons.",ephemeral:true});
     }
 
     if (interaction.commandName === "levelsetup") {
