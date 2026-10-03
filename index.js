@@ -52,6 +52,7 @@ function getSettings(guildId) {
       antiinvite: true,
       logs: null,
       welcome: null,
+      inviteLog: null,
       warnings: new Map()
     });
   }
@@ -136,6 +137,9 @@ const commands = [
 
   new SlashCommandBuilder().setName("invites").setDescription("Show invite statistics for a member.")
     .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true)),
+
+  new SlashCommandBuilder().setName("setinvitelog").setDescription("Set or disable the invite tracker channel.")
+    .addChannelOption(o => o.setName("channel").setDescription("Invite log channel.").addChannelTypes(ChannelType.GuildText).setRequired(false)),
 
   new SlashCommandBuilder().setName("config").setDescription("Configure security protection.")
     .addStringOption(o => o.setName("feature").setDescription("Feature.").setRequired(true)
@@ -261,7 +265,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","config","raidmode","ticketpanel"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","config","raidmode","ticketpanel"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -298,6 +302,16 @@ client.on("interactionCreate", async interaction => {
       }
       s.welcome = channel.id;
       return interaction.reply({content:`✨ Welcome channel set to <#${channel.id}>.`,ephemeral:true});
+    }
+
+    if (interaction.commandName === "setinvitelog") {
+      const channel = interaction.options.getChannel("channel");
+      if (!channel) {
+        s.inviteLog = null;
+        return interaction.reply({content:"📨 Invite tracker disabled.",ephemeral:true});
+      }
+      s.inviteLog = channel.id;
+      return interaction.reply({content:`📨 Invite tracker channel set to <#${channel.id}>.`,ephemeral:true});
     }
 
     if (interaction.commandName === "invites") {
@@ -542,6 +556,21 @@ client.on("guildMemberAdd", async member => {
   }
 
   if (usedInvite?.inviter) {
+    const inviterKey = `${member.guild.id}:${usedInvite.inviter.id}`;
+    const totalInvites = inviteCounts.get(inviterKey) || 0;
+    const inviteLog = s.inviteLog ? member.guild.channels.cache.get(s.inviteLog) : null;
+
+    if (inviteLog?.isTextBased()) {
+      const embed = new EmbedBuilder()
+        .setAuthor({name: usedInvite.inviter.tag, iconURL: usedInvite.inviter.displayAvatarURL({size:128})})
+        .setDescription(`👤 <@${usedInvite.inviter.id}> invited <@${member.id}>\n\n✨ **Now has ${totalInvites} invite${totalInvites === 1 ? "" : "s"}**`)
+        .setThumbnail(member.user.displayAvatarURL({size:256}))
+        .setColor(0x57F287)
+        .setFooter({text:`Invite: ${usedInvite.code}`})
+        .setTimestamp();
+      await inviteLog.send({embeds:[embed]}).catch(() => {});
+    }
+
     await modLog(member.guild,`📨 <@${member.id}> joined using an invite from <@${usedInvite.inviter.id}> (${usedInvite.code}).`);
   }
 });
