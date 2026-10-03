@@ -72,6 +72,23 @@ function getLevelInfo(guildId, userId) {
   return data;
 }
 
+function normalizeLogChannels(value) {
+  if (!value) return {member:null, mod:null, server:null};
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object") return {
+      member: parsed.member || null,
+      mod: parsed.mod || null,
+      server: parsed.server || null
+    };
+  } catch {}
+  return {member:null, mod:value, server:null};
+}
+
+function serializeLogChannels(s) {
+  return JSON.stringify(s.logChannels || {member:null, mod:s.logs || null, server:null});
+}
+
 function serializeWarnings(warnings) {
   return Object.fromEntries(warnings.entries());
 }
@@ -103,6 +120,7 @@ async function loadPersistentData() {
       antimention: row.antimention,
       antiinvite: row.antiinvite,
       logs: row.logs_channel_id,
+      logChannels: normalizeLogChannels(row.logs_channel_id),
       welcome: row.welcome_channel_id,
       inviteLog: row.invite_log_channel_id,
       levelChannel: row.level_channel_id,
@@ -137,7 +155,7 @@ async function saveGuildSettings(guildId) {
     antiraid: s.antiraid,
     antimention: s.antimention,
     antiinvite: s.antiinvite,
-    logs_channel_id: s.logs,
+    logs_channel_id: serializeLogChannels(s),
     welcome_channel_id: s.welcome,
     invite_log_channel_id: s.inviteLog,
     level_channel_id: s.levelChannel,
@@ -265,6 +283,7 @@ function getSettings(guildId) {
       antimention: true,
       antiinvite: true,
       logs: null,
+      logChannels: {member:null, mod:null, server:null},
       welcome: null,
       inviteLog: null,
       levelChannel: null,
@@ -278,15 +297,64 @@ function isAdmin(member) {
   return member?.permissions.has(PermissionFlagsBits.Administrator);
 }
 
-function logChannel(guild) {
-  const id = getSettings(guild.id).logs;
+function logChannel(guild, type = "mod") {
+  const s = getSettings(guild.id);
+  const id = s.logChannels?.[type] || (type === "mod" ? s.logs : null);
   return id ? guild.channels.cache.get(id) : null;
 }
 
-async function modLog(guild, text) {
-  const channel = logChannel(guild);
+function clipLogText(value, max = 900) {
+  const text = String(value ?? "").trim();
+  return text.length > max ? text.slice(0, max - 3) + "..." : text;
+}
+
+async function modLog(guild, text, type = "mod") {
+  const channel = logChannel(guild, type);
   if (!channel?.isTextBased()) return;
-  await channel.send({ content: text }).catch(() => {});
+  await channel.send({content:text}).catch(() => {});
+}
+
+async function sendLogEmbed(guild, type, embed) {
+  const channel = logChannel(guild, type);
+  if (!channel?.isTextBased()) return;
+  await channel.send({embeds:[embed]}).catch(() => {});
+}
+
+async function setupLogChannels(guild) {
+  const definitions = [
+    {key:"member", name:"member-logs"},
+    {key:"mod", name:"mod-logs"},
+    {key:"server", name:"server-logs"}
+  ];
+  const result = {};
+  for (const def of definitions) {
+    let channel = guild.channels.cache.find(ch =>
+      ch.type === ChannelType.GuildText && ch.name === def.name
+    );
+    if (!channel) {
+      channel = await guild.channels.create({
+        name:def.name,
+        type:ChannelType.GuildText,
+        permissionOverwrites:[
+          {
+            id:guild.roles.everyone.id,
+            deny:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]
+          },
+          {
+            id:client.user.id,
+            allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.ManageChannels]
+          }
+        ],
+        reason:"Create bot log channels"
+      });
+    }
+    result[def.key] = channel.id;
+  }
+  const s = getSettings(guild.id);
+  s.logChannels = result;
+  s.logs = result.mod;
+  await saveGuildSettings(guild.id);
+  return result;
 }
 
 async function cacheGuildInvites(guild) {
@@ -343,6 +411,9 @@ const commands = [
 
   new SlashCommandBuilder().setName("lockdown").setDescription("Lock or unlock the current channel for regular members.")
     .addBooleanOption(o => o.setName("enabled").setDescription("Enable lockdown?").setRequired(true)),
+
+  new SlashCommandBuilder().setName("setup-logs").setDescription("Create the three bot log channels.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString()),
 
   new SlashCommandBuilder().setName("setlogs").setDescription("Set the moderation log channel.")
     .addChannelOption(o => o.setName("channel").setDescription("Log channel.").addChannelTypes(ChannelType.GuildText).setRequired(true)),
@@ -502,7 +573,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -529,6 +600,17 @@ client.on("interactionCreate", async interaction => {
 
       await interaction.channel.send({embeds:[embed],components:[row]});
       return interaction.reply({content:"✅ Ticket panel created.",ephemeral:true});
+    }
+
+    if (interaction.commandName === "setup-logs") {
+      await interaction.deferReply({ephemeral:true});
+      const channels = await setupLogChannels(guild);
+      return interaction.editReply(
+        "✅ **Log system created!**\n\n" +
+        "👤 Member Logs: <#" + channels.member + ">\n" +
+        "🛡️ Mod Logs: <#" + channels.mod + ">\n" +
+        "⚙️ Server Logs: <#" + channels.server + ">"
+      );
     }
 
     if (interaction.commandName === "setwelcome") {
@@ -668,8 +750,10 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "setlogs") {
       const channel = interaction.options.getChannel("channel",true);
       s.logs = channel.id;
+      s.logChannels = s.logChannels || {member:null, mod:null, server:null};
+      s.logChannels.mod = channel.id;
       await saveGuildSettings(guild.id);
-      return interaction.reply({content:`✅ Logs set to <#${channel.id}>.`,ephemeral:true});
+      return interaction.reply({content:`✅ Mod logs set to <#${channel.id}>.`,ephemeral:true});
     }
 
     if (interaction.commandName === "config") {
@@ -814,14 +898,14 @@ client.on("messageCreate", async message => {
   // Anti-link / Anti-invite.
   if ((s.antilink || s.antiinvite) && linkRegex.test(message.content)) {
     try { await message.delete(); } catch {}
-    await modLog(message.guild,`🔗 Link removed from <@${message.author.id}> in <#${message.channel.id}>.`);
+    await modLog(message.guild,`🔗 Link removed from <@${message.author.id}> in <#${message.channel.id}>.`,`server`);
     return;
   }
 
   // Anti-mention spam.
   if (s.antimention && (message.mentions.users.size + message.mentions.roles.size >= 5 || message.mentions.everyone)) {
     try { await message.delete(); } catch {}
-    await modLog(message.guild,`📢 Mention spam removed from <@${message.author.id}>.`);
+    await modLog(message.guild,`📢 Mention spam removed from <@${message.author.id}>.`,`server`);
     return;
   }
 
@@ -834,7 +918,7 @@ client.on("messageCreate", async message => {
     spamTracker.set(key,arr);
     if (arr.length >= 6) {
       try { await message.member.timeout(60000,"Anti-spam"); } catch {}
-      await modLog(message.guild,`🚫 Anti-spam triggered for <@${message.author.id}>.`);
+      await modLog(message.guild,`🚫 Anti-spam triggered for <@${message.author.id}>.`,`server`);
       spamTracker.set(key,[]);
     }
   }
@@ -912,12 +996,12 @@ client.on("guildMemberAdd", async member => {
     joinTracker.set(member.guild.id,arr);
     if (arr.length >= 8) {
       raidMode.add(member.guild.id);
-      await modLog(member.guild,`🚨 Raid detected: ${arr.length} joins in 20 seconds. Raid mode enabled.`);
+      await modLog(member.guild,`🚨 Raid detected: ${arr.length} joins in 20 seconds. Raid mode enabled.`,`server`);
     }
   }
 
   if (raidMode.has(member.guild.id)) {
-    await modLog(member.guild,`🛡️ Raid mode active while <@${member.id}> joined.`);
+    await modLog(member.guild,`🛡️ Raid mode active while <@${member.id}> joined.`,`server`);
   }
 
   if (usedInvite?.inviter) {
@@ -936,12 +1020,80 @@ client.on("guildMemberAdd", async member => {
       await inviteLog.send({embeds:[embed]}).catch(() => {});
     }
 
-    await modLog(member.guild,`📨 <@${member.id}> joined using an invite from <@${usedInvite.inviter.id}> (${usedInvite.code}).`);
+    await modLog(member.guild,`📨 <@${member.id}> joined using an invite from <@${usedInvite.inviter.id}> (${usedInvite.code}).`,`member`);
+  }
+});
+
+
+// Three-channel audit logging.
+client.on("guildMemberAdd", async member => {
+  await sendLogEmbed(member.guild,"member",new EmbedBuilder()
+    .setTitle("👤 MEMBER JOINED")
+    .setDescription("<@" + member.id + "> joined the server.")
+    .addFields(
+      {name:"User",value:"<@" + member.id + "> (" + member.user.tag + ")",inline:true},
+      {name:"Member Count",value:String(member.guild.memberCount),inline:true}
+    )
+    .setThumbnail(member.user.displayAvatarURL({size:256}))
+    .setColor(0x57F287).setTimestamp());
+});
+
+client.on("guildMemberRemove", async member => {
+  await sendLogEmbed(member.guild,"member",new EmbedBuilder()
+    .setTitle("👋 MEMBER LEFT")
+    .setDescription("<@" + member.id + "> left the server.")
+    .addFields({name:"User",value:member.user?.tag || member.id})
+    .setColor(0xED4245).setTimestamp());
+});
+
+client.on("messageDelete", async message => {
+  if (!message.guild || message.author?.bot) return;
+  await sendLogEmbed(message.guild,"server",new EmbedBuilder()
+    .setTitle("🗑️ MESSAGE DELETED")
+    .setDescription("A message was deleted in <#" + message.channel.id + ">.")
+    .addFields(
+      {name:"Author",value:"<@" + (message.author?.id || "unknown") + ">",inline:true},
+      {name:"Content",value:clipLogText(message.content || "Content unavailable.")}
+    )
+    .setColor(0xED4245).setTimestamp());
+});
+
+client.on("messageUpdate", async (oldMessage,newMessage) => {
+  if (!newMessage.guild || newMessage.author?.bot) return;
+  if ((oldMessage.content || "") === (newMessage.content || "")) return;
+  await sendLogEmbed(newMessage.guild,"server",new EmbedBuilder()
+    .setTitle("✏️ MESSAGE EDITED")
+    .setDescription("A message was edited in <#" + newMessage.channel.id + ">.")
+    .addFields(
+      {name:"Author",value:"<@" + (newMessage.author?.id || "unknown") + ">",inline:true},
+      {name:"Before",value:clipLogText(oldMessage.content || "Unavailable.")},
+      {name:"After",value:clipLogText(newMessage.content || "Unavailable.")}
+    )
+    .setColor(0xFEE75C).setTimestamp());
+});
+
+client.on("channelCreate", async channel => {
+  if (channel.guild) await modLog(channel.guild,"📁 Channel created: <#" + channel.id + "> (" + channel.name + ").","server");
+});
+client.on("channelDelete", async channel => {
+  if (channel.guild) await modLog(channel.guild,"🗑️ Channel deleted: **" + channel.name + "**.","server");
+});
+client.on("channelUpdate", async (oldChannel,newChannel) => {
+  if (!newChannel.guild) return;
+  if (oldChannel.name === newChannel.name && oldChannel.topic === newChannel.topic) return;
+  await modLog(newChannel.guild,"✏️ Channel updated: <#" + newChannel.id + ">. " + oldChannel.name + " → " + newChannel.name,"server");
+});
+client.on("roleCreate", async role => {
+  if (!role.managed) await modLog(role.guild,"🎭 Role created: <@&" + role.id + ">.","server");
+});
+client.on("roleDelete", async role => {
+  if (!role.managed) await modLog(role.guild,"🗑️ Role deleted: **" + role.name + "**.","server");
+});
+client.on("roleUpdate", async (oldRole,newRole) => {
+  if (!newRole.managed && (oldRole.name !== newRole.name || oldRole.color !== newRole.color)) {
+    await modLog(newRole.guild,"✏️ Role updated: **" + oldRole.name + "** → **" + newRole.name + "**.","server");
   }
 });
 
 client.on("error", console.error);
 client.login(TOKEN);
-
-// Three-channel logging marker
-// /setup-logs integration pending command registration.
