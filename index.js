@@ -242,7 +242,7 @@ async function registerCommands() {
   await rest.put(Routes.applicationCommands(CLIENT_ID), {
     body: commands.map(c => c.toJSON())
   });
-  console.log("Registered security/moderation/welcome/invite commands.");
+  console.log(`Registered ${commands.length} GLOBAL slash commands.`);
 }
 
 client.once("ready", async () => {
