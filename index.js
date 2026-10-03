@@ -37,6 +37,11 @@ const spamTracker = new Map();
 const joinTracker = new Map();
 const raidMode = new Set();
 
+// Invite tracking cache.
+// The bot needs "Manage Server" permission to fetch invite usage.
+const inviteCache = new Map();
+const inviteCounts = new Map();
+
 function getSettings(guildId) {
   if (!settings.has(guildId)) {
     settings.set(guildId, {
@@ -46,6 +51,7 @@ function getSettings(guildId) {
       antimention: true,
       antiinvite: true,
       logs: null,
+      welcome: null,
       warnings: new Map()
     });
   }
@@ -65,6 +71,23 @@ async function modLog(guild, text) {
   const channel = logChannel(guild);
   if (!channel?.isTextBased()) return;
   await channel.send({ content: text }).catch(() => {});
+}
+
+async function cacheGuildInvites(guild) {
+  try {
+    const invites = await guild.invites.fetch();
+    const data = new Map();
+    for (const invite of invites.values()) {
+      data.set(invite.code, {
+        uses: invite.uses || 0,
+        inviterId: invite.inviter?.id || null
+      });
+    }
+    inviteCache.set(guild.id, data);
+  } catch (error) {
+    // Invite tracking requires Manage Server. Keep the bot running if unavailable.
+    console.warn(`Could not cache invites for ${guild.name}: missing permission or unavailable invites.`);
+  }
 }
 
 const commands = [
@@ -108,6 +131,12 @@ const commands = [
   new SlashCommandBuilder().setName("setlogs").setDescription("Set the moderation log channel.")
     .addChannelOption(o => o.setName("channel").setDescription("Log channel.").addChannelTypes(ChannelType.GuildText).setRequired(true)),
 
+  new SlashCommandBuilder().setName("setwelcome").setDescription("Set or disable the welcome channel.")
+    .addChannelOption(o => o.setName("channel").setDescription("Welcome channel.").addChannelTypes(ChannelType.GuildText).setRequired(false)),
+
+  new SlashCommandBuilder().setName("invites").setDescription("Show invite statistics for a member.")
+    .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true)),
+
   new SlashCommandBuilder().setName("config").setDescription("Configure security protection.")
     .addStringOption(o => o.setName("feature").setDescription("Feature.").setRequired(true)
       .addChoices(
@@ -134,12 +163,27 @@ async function registerCommands() {
   await rest.put(Routes.applicationCommands(CLIENT_ID), {
     body: commands.map(c => c.toJSON())
   });
-  console.log("Registered security/moderation commands.");
+  console.log("Registered security/moderation/welcome/invite commands.");
 }
 
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
+  for (const guild of client.guilds.cache.values()) {
+    await cacheGuildInvites(guild);
+  }
   try { await registerCommands(); } catch (e) { console.error("Command registration failed:", e); }
+});
+
+client.on("inviteCreate", invite => {
+  const guild = invite.guild;
+  const current = inviteCache.get(guild.id) || new Map();
+  current.set(invite.code, {uses: invite.uses || 0, inviterId: invite.inviter?.id || null});
+  inviteCache.set(guild.id, current);
+});
+
+client.on("inviteDelete", invite => {
+  const current = inviteCache.get(invite.guild.id);
+  current?.delete(invite.code);
 });
 
 client.on("interactionCreate", async interaction => {
@@ -217,7 +261,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","config","raidmode","ticketpanel"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","config","raidmode","ticketpanel"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -244,6 +288,35 @@ client.on("interactionCreate", async interaction => {
 
       await interaction.channel.send({embeds:[embed],components:[row]});
       return interaction.reply({content:"✅ Ticket panel created.",ephemeral:true});
+    }
+
+    if (interaction.commandName === "setwelcome") {
+      const channel = interaction.options.getChannel("channel");
+      if (!channel) {
+        s.welcome = null;
+        return interaction.reply({content:"👋 Welcome messages disabled.",ephemeral:true});
+      }
+      s.welcome = channel.id;
+      return interaction.reply({content:`✨ Welcome channel set to <#${channel.id}>.`,ephemeral:true});
+    }
+
+    if (interaction.commandName === "invites") {
+      const user = interaction.options.getUser("user",true);
+      const key = `${guild.id}:${user.id}`;
+      const count = inviteCounts.get(key) || 0;
+      const embed = new EmbedBuilder()
+        .setAuthor({name:user.tag,iconURL:user.displayAvatarURL({size:128})})
+        .setTitle("📨 Invite Statistics")
+        .setDescription(`<@${user.id}> has brought **${count}** member${count === 1 ? "" : "s"} to this server.`)
+        .addFields(
+          {name:"Total Invites",value:`${count}`,inline:true},
+          {name:"Member",value:`<@${user.id}>`,inline:true}
+        )
+        .setThumbnail(user.displayAvatarURL({size:256}))
+        .setColor(0x5865F2)
+        .setFooter({text:guild.name})
+        .setTimestamp();
+      return interaction.reply({embeds:[embed]});
     }
 
     if (interaction.commandName === "hidem") {
@@ -391,21 +464,85 @@ client.on("messageCreate", async message => {
   }
 });
 
-// Anti-raid: 8 joins in 20 seconds -> raid mode.
+// Anti-raid + welcome + invite tracking.
 client.on("guildMemberAdd", async member => {
   const s = getSettings(member.guild.id);
-  if (!s.antiraid) return;
-  const now = Date.now();
-  const arr = (joinTracker.get(member.guild.id) || []).filter(t => now-t < 20000);
-  arr.push(now);
-  joinTracker.set(member.guild.id,arr);
-  if (arr.length >= 8) {
-    raidMode.add(member.guild.id);
-    await modLog(member.guild,`🚨 Raid detected: ${arr.length} joins in 20 seconds. Raid mode enabled.`);
+
+  // Determine which invite was used by comparing cached usage counts.
+  let usedInvite = null;
+  try {
+    const oldInvites = inviteCache.get(member.guild.id) || new Map();
+    const newInvites = await member.guild.invites.fetch();
+
+    for (const invite of newInvites.values()) {
+      const old = oldInvites.get(invite.code);
+      if (invite.uses > (old?.uses || 0)) {
+        usedInvite = invite;
+        break;
+      }
+    }
+
+    const updated = new Map();
+    for (const invite of newInvites.values()) {
+      updated.set(invite.code, {
+        uses: invite.uses || 0,
+        inviterId: invite.inviter?.id || null
+      });
+    }
+    inviteCache.set(member.guild.id, updated);
+  } catch {}
+
+  if (usedInvite?.inviter) {
+    const key = `${member.guild.id}:${usedInvite.inviter.id}`;
+    inviteCounts.set(key, (inviteCounts.get(key) || 0) + 1);
   }
+
+  // Beautiful welcome embed.
+  if (s.welcome) {
+    const channel = member.guild.channels.cache.get(s.welcome);
+    if (channel?.isTextBased()) {
+      const embed = new EmbedBuilder()
+        .setAuthor({
+          name: member.guild.name,
+          iconURL: member.guild.iconURL({size:128}) || undefined
+        })
+        .setTitle("✨ Welcome to the server!")
+        .setDescription(
+          `Hey <@${member.id}>! 👋\n\n` +
+          `We're happy to have you here. You are member **#${member.guild.memberCount}**!\n\n` +
+          `📅 Account created: <t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`
+        )
+        .setThumbnail(member.user.displayAvatarURL({size:512}))
+        .setColor(0x5865F2)
+        .setFooter({
+          text: usedInvite?.inviter ? `Invited by ${usedInvite.inviter.tag}` : "Enjoy your stay! 💜"
+        })
+        .setTimestamp();
+
+      await channel.send({
+        content: `Welcome <@${member.id}>! 🎉`,
+        embeds: [embed]
+      }).catch(() => {});
+    }
+  }
+
+  if (s.antiraid) {
+    const now = Date.now();
+    const arr = (joinTracker.get(member.guild.id) || []).filter(t => now-t < 20000);
+    arr.push(now);
+    joinTracker.set(member.guild.id,arr);
+    if (arr.length >= 8) {
+      raidMode.add(member.guild.id);
+      await modLog(member.guild,`🚨 Raid detected: ${arr.length} joins in 20 seconds. Raid mode enabled.`);
+    }
+  }
+
   if (raidMode.has(member.guild.id)) {
-    // Do not automatically punish users; raid mode is a protective state for admins to handle.
     await modLog(member.guild,`🛡️ Raid mode active while <@${member.id}> joined.`);
+  }
+
+  if (usedInvite?.inviter) {
+    await modLog(member.guild,`📨 <@${member.id}> joined using an invite from <@${usedInvite.inviter.id}> (${usedInvite.code}).`);
   }
 });
 
