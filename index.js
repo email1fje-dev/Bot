@@ -69,6 +69,7 @@ function levelFromXP(xp) {
 async function ensureLevelRole(guild, roleInfo, repair = false) {
   const me = guild.members.me;
   const highestBotPosition = me ? me.roles.highest.position : -1;
+
   let role = guild.roles.cache.find(r =>
     r.name === roleInfo.name &&
     !r.managed &&
@@ -76,22 +77,41 @@ async function ensureLevelRole(guild, roleInfo, repair = false) {
   );
 
   if (!role) {
-    if (!role) {
-      role = await guild.roles.create({
-        name: roleInfo.name,
-        color: roleInfo.color,
+    role = await guild.roles.create({
+      name: roleInfo.name,
+      color: roleInfo.color,
+      reason: repair ? "Repair level system role" : "Level system role"
+    }).catch(error => {
+      console.error(`Could not create level role ${roleInfo.name}:`, error);
+      return null;
+    });
+
+    if (role) {
+      await role.edit({
         unicodeEmoji: roleInfo.emoji,
-        reason: repair ? "Repair level system role" : "Level system role"
-      }).catch(() => null);
+        reason: "Set level role icon"
+      }).catch(error => {
+        console.warn(`Could not set icon for ${roleInfo.name}:`, error.message);
+      });
     }
   }
 
   if (role && repair) {
+    // Color is intentionally edited separately from the icon.
+    // Discord can reject role icons while still allowing role colors.
     await role.edit({
       color: roleInfo.color,
+      reason: "Repair level role color"
+    }).catch(error => {
+      console.error(`Could not set color for ${roleInfo.name}:`, error.message);
+    });
+
+    await role.edit({
       unicodeEmoji: roleInfo.emoji,
-      reason: "Repair level system role"
-    }).catch(() => {});
+      reason: "Repair level role icon"
+    }).catch(error => {
+      console.warn(`Could not set icon for ${roleInfo.name}:`, error.message);
+    });
   }
 
   return role;
