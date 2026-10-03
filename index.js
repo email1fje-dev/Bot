@@ -302,6 +302,7 @@ async function cacheGuildInvites(guild) {
     inviteCache.set(guild.id, data);
   } catch (error) {
     console.warn(`Could not cache invites for ${guild.name}: ${error.message}`);
+    console.warn("Invite tracking needs the bot to have Manage Server permission.");
   }
 }
 
@@ -539,7 +540,12 @@ client.on("interactionCreate", async interaction => {
       }
       s.welcome = channel.id;
       await saveGuildSettings(guild.id);
-      return interaction.reply({content:`✨ Welcome channel set to <#${channel.id}>.`,ephemeral:true});
+      const welcomePerms = channel.permissionsFor(client.user);
+      const canWelcome = welcomePerms?.has(PermissionFlagsBits.ViewChannel) && welcomePerms?.has(PermissionFlagsBits.SendMessages);
+      return interaction.reply({
+        content:`✨ Welcome channel set to <#${channel.id}>.${canWelcome ? "" : "\n⚠️ I don't have View Channel + Send Messages permission there."}`,
+        ephemeral:true
+      });
     }
 
     if (interaction.commandName === "setinvitelog") {
@@ -860,7 +866,9 @@ client.on("guildMemberAdd", async member => {
       });
     }
     inviteCache.set(member.guild.id, updated);
-  } catch {}
+  } catch (error) {
+    console.warn(`Invite detection failed for ${member.guild.name}:`, error.message);
+  }
 
   if (usedInvite?.inviter) {
     const key = `${member.guild.id}:${usedInvite.inviter.id}`;
@@ -893,7 +901,7 @@ client.on("guildMemberAdd", async member => {
       await channel.send({
         content: `Welcome <@${member.id}>! 🎉`,
         embeds: [embed]
-      }).catch(() => {});
+      }).catch(error => console.error(`Welcome message failed in ${channel.name}:`, error.message));
     }
   }
 
