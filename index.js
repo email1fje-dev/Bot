@@ -942,3 +942,6 @@ client.on("guildMemberAdd", async member => {
 
 client.on("error", console.error);
 client.login(TOKEN);
+
+// Three-channel logging marker
+// /setup-logs integration pending command registration.
