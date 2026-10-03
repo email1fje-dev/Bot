@@ -585,7 +585,7 @@ client.on("interactionCreate", async interaction => {
       if (targetChannel) {
         const embed = new EmbedBuilder()
           .setTitle("✨ LEVEL SET!")
-          .setDescription("<@" + user.id + "> level was set to **Level " + level + "** by <@" + interaction.user.id + ">!\\n\\n" +
+          .setDescription("<@" + user.id + "> level was set to **Level " + level + "** by <@" + interaction.user.id + ">!\n\n" +
             (role ? "🏷️ New role: <@&" + role.id + ">" : "No level role unlocked at this level."))
           .setColor(roleInfo?.color || 0x9B59B6)
           .setThumbnail(user.displayAvatarURL({size:256}))
@@ -599,7 +599,7 @@ client.on("interactionCreate", async interaction => {
 
       return interaction.reply({
         content:"✅ <@" + user.id + "> is now **Level " + level + "**. Old level: **" + oldLevel + "**." +
-          (targetChannel ? "\\n📢 Announced in <#" + targetChannel.id + ">." : "\\n⚠️ No Level Up channel is configured."),
+          (targetChannel ? "\n📢 Announced in <#" + targetChannel.id + ">." : "\n⚠️ No Level Up channel is configured."),
         ephemeral:true
       });
     }
@@ -610,7 +610,7 @@ client.on("interactionCreate", async interaction => {
         const role = await ensureLevelRole(guild, roleInfo);
         if (role) created.push(`<@&${role.id}> → Level ${roleInfo.level}`);
       }
-      return interaction.reply({content:"✨ **Level system enabled!**\\n\\n" + created.join("\\n") + "\\n\\nMembers earn XP from chatting and receive the matching role automatically.",ephemeral:true});
+      return interaction.reply({content:"✨ **Level system enabled!**\n\n" + created.join("\n") + "\n\nMembers earn XP from chatting and receive the matching role automatically.",ephemeral:true});
     }
 
     if (interaction.commandName === "rules") {
@@ -618,7 +618,7 @@ client.on("interactionCreate", async interaction => {
       const embed = new EmbedBuilder()
         .setAuthor({name:guild.name, iconURL:guild.iconURL({size:128}) || undefined})
         .setTitle("📜 SERVER RULES")
-        .setDescription("━━━━━━━━━━━━━━━━━━━━\\n1️⃣ **Respect** — Treat everyone with respect.\\n2️⃣ **No Spam** — No message, emoji, or mention spam.\\n3️⃣ **No Advertising** — No ads without staff permission.\\n4️⃣ **Keep It Appropriate** — Follow Discord rules and keep the server appropriate.\\n5️⃣ **No Raiding** — No raids or intentional disruption.\\n6️⃣ **Right Channels** — Use channels for their intended purpose.\\n7️⃣ **Follow Staff** — Respect staff instructions.\\n8️⃣ **No Exploits/Scams** — No malicious files, scams, or harmful content.\\n━━━━━━━━━━━━━━━━━━━━")
+        .setDescription("━━━━━━━━━━━━━━━━━━━━\n1️⃣ **Respect** — Treat everyone with respect.\n2️⃣ **No Spam** — No message, emoji, or mention spam.\n3️⃣ **No Advertising** — No ads without staff permission.\n4️⃣ **Keep It Appropriate** — Follow Discord rules and keep the server appropriate.\n5️⃣ **No Raiding** — No raids or intentional disruption.\n6️⃣ **Right Channels** — Use channels for their intended purpose.\n7️⃣ **Follow Staff** — Respect staff instructions.\n8️⃣ **No Exploits/Scams** — No malicious files, scams, or harmful content.\n━━━━━━━━━━━━━━━━━━━━")
         .setColor(0x5865F2)
         .setFooter({text:"By staying in this server, you agree to follow these rules."})
         .setTimestamp();
@@ -662,7 +662,7 @@ client.on("messageCreate", async message => {
       const role = await applyLevelRole(message.member, data.level);
       const embed = new EmbedBuilder()
         .setTitle("✨ LEVEL UP!")
-        .setDescription(`<@${message.author.id}> reached **Level ${data.level}**!\\n\\n${role ? `🏷️ New role: <@&${role.id}>` : "Keep chatting to unlock your next rank!"}`)
+        .setDescription(`<@${message.author.id}> reached **Level ${data.level}**!\n\n${role ? `🏷️ New role: <@&${role.id}>` : "Keep chatting to unlock your next rank!"}`)
         .setColor(0x9B59B6)
         .setThumbnail(message.author.displayAvatarURL({size:256}))
         .setTimestamp();
