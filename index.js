@@ -186,6 +186,10 @@ const commands = [
   new SlashCommandBuilder().setName("setinvitelog").setDescription("Set or disable the invite tracker channel.")
     .addChannelOption(o => o.setName("channel").setDescription("Invite log channel.").addChannelTypes(ChannelType.GuildText).setRequired(false)),
 
+  new SlashCommandBuilder().setName("setlevelchannel").setDescription("Set or disable the Level Up channel.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addChannelOption(o => o.setName("channel").setDescription("Channel for Level Up messages.").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false)),
+
   new SlashCommandBuilder().setName("config").setDescription("Configure security protection.")
     .addStringOption(o => o.setName("feature").setDescription("Feature.").setRequired(true)
       .addChoices(
@@ -318,7 +322,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","config","raidmode","ticketpanel","rules","levelsetup"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","setlevelchannel","config","raidmode","ticketpanel","rules","levelsetup"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -365,6 +369,16 @@ client.on("interactionCreate", async interaction => {
       }
       s.inviteLog = channel.id;
       return interaction.reply({content:`📨 Invite tracker channel set to <#${channel.id}>.`,ephemeral:true});
+    }
+
+    if (interaction.commandName === "setlevelchannel") {
+      const channel = interaction.options.getChannel("channel");
+      if (!channel) {
+        s.levelChannel = null;
+        return interaction.reply({content:"✨ Level Up messages will now appear in the channel where the level-up happens.",ephemeral:true});
+      }
+      s.levelChannel = channel.id;
+      return interaction.reply({content:`✨ Level Up channel set to <#${channel.id}>.`,ephemeral:true});
     }
 
     if (interaction.commandName === "invites") {
@@ -540,7 +554,9 @@ client.on("messageCreate", async message => {
         .setColor(0x9B59B6)
         .setThumbnail(message.author.displayAvatarURL({size:256}))
         .setTimestamp();
-      await message.channel.send({embeds:[embed]}).catch(() => {});
+      const levelChannel = s.levelChannel ? message.guild.channels.cache.get(s.levelChannel) : null;
+      const targetChannel = levelChannel?.isTextBased() ? levelChannel : message.channel;
+      await targetChannel.send({embeds:[embed]}).catch(() => {});
     }
   }
 
