@@ -76,6 +76,19 @@ async function modLog(guild, text) {
 
 async function cacheGuildInvites(guild) {
   try {
+    if (interaction.commandName === "rules") {
+      const channel = interaction.options.getChannel("channel", true);
+      const embed = new EmbedBuilder()
+        .setAuthor({name:guild.name, iconURL:guild.iconURL({size:128}) || undefined})
+        .setTitle("📜 SERVER RULES")
+        .setDescription("━━━━━━━━━━━━━━━━━━━━\\n1️⃣ **Respect** — Treat everyone with respect.\\n2️⃣ **No Spam** — No message, emoji, or mention spam.\\n3️⃣ **No Advertising** — No ads without staff permission.\\n4️⃣ **Keep It Appropriate** — Follow Discord rules and keep the server appropriate.\\n5️⃣ **No Raiding** — No raids or intentional disruption.\\n6️⃣ **Right Channels** — Use channels for their intended purpose.\\n7️⃣ **Follow Staff** — Respect staff instructions.\\n8️⃣ **No Exploits/Scams** — No malicious files, scams, or harmful content.\\n━━━━━━━━━━━━━━━━━━━━")
+        .setColor(0x5865F2)
+        .setFooter({text:"By staying in this server, you agree to follow these rules."})
+        .setTimestamp();
+      await channel.send({embeds:[embed]});
+      return interaction.reply({content:"✅ Rules panel sent to <#" + channel.id + ">.",ephemeral:true});
+    }
+
     const invites = await guild.invites.fetch();
     const data = new Map();
     for (const invite of invites.values()) {
@@ -156,6 +169,11 @@ const commands = [
   new SlashCommandBuilder().setName("ticketpanel").setDescription("Create a Ticket Tool-style ticket panel.")
     .addStringOption(o => o.setName("title").setDescription("Panel title.").setMaxLength(256))
     .addStringOption(o => o.setName("description").setDescription("Panel description.").setMaxLength(4000)),
+
+  new SlashCommandBuilder().setName("rules").setDescription("Send the server rules to a selected channel.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addChannelOption(o => o.setName("channel").setDescription("Channel where the rules will be posted.")
+      .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)),
 
   new SlashCommandBuilder().setName("serverinfo").setDescription("Show server information."),
   new SlashCommandBuilder().setName("userinfo").setDescription("Show information about a member.")
@@ -265,7 +283,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","config","raidmode","ticketpanel"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","config","raidmode","ticketpanel","rules"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
