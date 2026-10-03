@@ -67,13 +67,16 @@ function levelFromXP(xp) {
 }
 
 async function ensureLevelRole(guild, roleInfo, repair = false) {
-  let role = guild.roles.cache.find(r => r.name === roleInfo.name && !r.managed);
-
   const me = guild.members.me;
-  const editable = role && me ? role.position < me.roles.highest.position : false;
+  const highestBotPosition = me ? me.roles.highest.position : -1;
+  let role = guild.roles.cache.find(r =>
+    r.name === roleInfo.name &&
+    !r.managed &&
+    r.position < highestBotPosition
+  );
 
-  if (!role || (repair && !editable)) {
-    if (!role || !editable) {
+  if (!role) {
+    if (!role) {
       role = await guild.roles.create({
         name: roleInfo.name,
         color: roleInfo.color,
