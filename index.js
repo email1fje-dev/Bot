@@ -37,7 +37,9 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildModeration,
+    GatewayIntentBits.GuildVoiceStates
   ]
 });
 
@@ -311,7 +313,11 @@ function clipLogText(value, max = 900) {
 async function modLog(guild, text, type = "mod") {
   const channel = logChannel(guild, type);
   if (!channel?.isTextBased()) return;
-  await channel.send({content:text}).catch(() => {});
+  const embed = new EmbedBuilder()
+    .setDescription(text)
+    .setColor(type === "mod" ? 0xFEE75C : type === "member" ? 0x57F287 : 0x5865F2)
+    .setTimestamp();
+  await channel.send({embeds:[embed]}).catch(() => {});
 }
 
 async function sendLogEmbed(guild, type, embed) {
@@ -322,28 +328,39 @@ async function sendLogEmbed(guild, type, embed) {
 
 async function lockLogChannelToAdmins(channel, guild) {
   await channel.permissionOverwrites.edit(guild.roles.everyone.id, {
-    ViewChannel:false,
-    SendMessages:false
+    ViewChannel:false, SendMessages:false
   }).catch(() => {});
   for (const role of guild.roles.cache.values()) {
     if (role.id === guild.roles.everyone.id || role.managed) continue;
-    await channel.permissionOverwrites.edit(role.id, {
-      ViewChannel:false
-    }).catch(() => {});
+    await channel.permissionOverwrites.edit(role.id, {ViewChannel:false}).catch(() => {});
   }
   await channel.permissionOverwrites.edit(client.user.id, {
-    ViewChannel:true,
-    SendMessages:true,
-    ReadMessageHistory:true,
-    ManageChannels:true
+    ViewChannel:true, SendMessages:true, ReadMessageHistory:true, ManageChannels:true
   }).catch(() => {});
 }
 
 async function setupLogChannels(guild) {
+  const categoryName = "📋・LOGS";
+  let category = guild.channels.cache.find(ch =>
+    ch.type === ChannelType.GuildCategory && ch.name === categoryName
+  );
+  if (!category) {
+    category = await guild.channels.create({
+      name:categoryName,
+      type:ChannelType.GuildCategory,
+      permissionOverwrites:[
+        {id:guild.roles.everyone.id, deny:[PermissionFlagsBits.ViewChannel]},
+        {id:client.user.id, allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.ManageChannels]}
+      ],
+      reason:"Create bot logs category"
+    });
+  }
+  await lockLogChannelToAdmins(category, guild);
+
   const definitions = [
-    {key:"member", name:"member-logs"},
-    {key:"mod", name:"mod-logs"},
-    {key:"server", name:"server-logs"}
+    {key:"member", name:"👤・member-logs"},
+    {key:"mod", name:"🛡️・mod-logs"},
+    {key:"server", name:"⚙️・server-logs"}
   ];
   const result = {};
   for (const def of definitions) {
@@ -354,18 +371,15 @@ async function setupLogChannels(guild) {
       channel = await guild.channels.create({
         name:def.name,
         type:ChannelType.GuildText,
+        parent:category.id,
         permissionOverwrites:[
-          {
-            id:guild.roles.everyone.id,
-            deny:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]
-          },
-          {
-            id:client.user.id,
-            allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.ManageChannels]
-          }
+          {id:guild.roles.everyone.id, deny:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages]},
+          {id:client.user.id, allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.ManageChannels]}
         ],
-        reason:"Create bot log channels"
+        reason:"Create bot log channel"
       });
+    } else if (channel.parentId !== category.id) {
+      await channel.setParent(category.id,{lockPermissions:false}).catch(() => {});
     }
     await lockLogChannelToAdmins(channel, guild);
     result[def.key] = channel.id;
@@ -432,7 +446,7 @@ const commands = [
   new SlashCommandBuilder().setName("lockdown").setDescription("Lock or unlock the current channel for regular members.")
     .addBooleanOption(o => o.setName("enabled").setDescription("Enable lockdown?").setRequired(true)),
 
-  new SlashCommandBuilder().setName("setup-logs").setDescription("Create the three bot log channels.")
+  new SlashCommandBuilder().setName("setup-logs").setDescription("Create and configure the private bot logs category and channels.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString()),
 
   new SlashCommandBuilder().setName("setlogs").setDescription("Set the moderation log channel.")
@@ -1113,6 +1127,59 @@ client.on("roleUpdate", async (oldRole,newRole) => {
   if (!newRole.managed && (oldRole.name !== newRole.name || oldRole.color !== newRole.color)) {
     await modLog(newRole.guild,"✏️ Role updated: **" + oldRole.name + "** → **" + newRole.name + "**.","server");
   }
+});
+
+
+// Extra audit events.
+client.on("guildBanAdd", async ban => {
+  await sendLogEmbed(ban.guild,"mod",new EmbedBuilder().setTitle("🔨 MEMBER BANNED")
+    .setDescription("<@" + ban.user.id + "> was banned.").addFields({name:"User",value:ban.user.tag || ban.user.id})
+    .setColor(0xED4245).setTimestamp());
+});
+client.on("guildBanRemove", async ban => {
+  await sendLogEmbed(ban.guild,"mod",new EmbedBuilder().setTitle("🔓 MEMBER UNBANNED")
+    .setDescription("<@" + ban.user.id + "> was unbanned.").addFields({name:"User",value:ban.user.tag || ban.user.id})
+    .setColor(0x57F287).setTimestamp());
+});
+client.on("guildMemberUpdate", async (oldMember,newMember) => {
+  if (oldMember.nickname !== newMember.nickname) {
+    await sendLogEmbed(newMember.guild,"member",new EmbedBuilder().setTitle("✏️ NICKNAME CHANGED")
+      .setDescription("<@" + newMember.id + "> changed nickname.")
+      .addFields({name:"Before",value:oldMember.nickname || "None",inline:true},{name:"After",value:newMember.nickname || "None",inline:true})
+      .setColor(0x5865F2).setTimestamp());
+  }
+  const oldRoles=new Set(oldMember.roles.cache.keys());
+  const newRoles=new Set(newMember.roles.cache.keys());
+  const added=[...newMember.roles.cache.values()].find(r=>!oldRoles.has(r.id));
+  const removed=[...oldMember.roles.cache.values()].find(r=>!newRoles.has(r.id));
+  if (added && !added.managed) await sendLogEmbed(newMember.guild,"member",new EmbedBuilder().setTitle("🏷️ ROLE ADDED")
+    .setDescription("<@"+newMember.id+"> received <@&"+added.id+">.").setColor(0x57F287).setTimestamp());
+  if (removed && !removed.managed) await sendLogEmbed(newMember.guild,"member",new EmbedBuilder().setTitle("🏷️ ROLE REMOVED")
+    .setDescription("<@"+newMember.id+"> lost **"+removed.name+"**.").setColor(0xED4245).setTimestamp());
+  if (oldMember.communicationDisabledUntilTimestamp !== newMember.communicationDisabledUntilTimestamp) {
+    const active=!!newMember.communicationDisabledUntilTimestamp;
+    await sendLogEmbed(newMember.guild,"mod",new EmbedBuilder().setTitle(active ? "🔇 TIMEOUT ADDED" : "🔊 TIMEOUT REMOVED")
+      .setDescription("<@"+newMember.id+"> was "+(active?"timed out.":"untimed out.")).setColor(active?0xED4245:0x57F287).setTimestamp());
+  }
+});
+client.on("voiceStateUpdate", async (oldState,newState) => {
+  if (!oldState.channelId && newState.channelId)
+    await sendLogEmbed(newState.guild,"member",new EmbedBuilder().setTitle("🔊 VOICE JOIN")
+      .setDescription("<@"+newState.id+"> joined <#"+newState.channelId+">.").setColor(0x57F287).setTimestamp());
+  else if (oldState.channelId && !newState.channelId)
+    await sendLogEmbed(newState.guild,"member",new EmbedBuilder().setTitle("🔇 VOICE LEAVE")
+      .setDescription("<@"+newState.id+"> left <#"+oldState.channelId+">.").setColor(0xED4245).setTimestamp());
+  else if (oldState.channelId !== newState.channelId)
+    await sendLogEmbed(newState.guild,"member",new EmbedBuilder().setTitle("🔀 VOICE MOVE")
+      .setDescription("<@"+newState.id+"> moved <#"+oldState.channelId+"> → <#"+newState.channelId+">.").setColor(0x5865F2).setTimestamp());
+});
+client.on("threadCreate", async thread => {
+  await sendLogEmbed(thread.guild,"server",new EmbedBuilder().setTitle("🧵 THREAD CREATED")
+    .setDescription("Thread <#"+thread.id+"> was created.").setColor(0x5865F2).setTimestamp());
+});
+client.on("threadDelete", async thread => {
+  await sendLogEmbed(thread.guild,"server",new EmbedBuilder().setTitle("🧵 THREAD DELETED")
+    .setDescription("Thread **"+thread.name+"** was deleted.").setColor(0xED4245).setTimestamp());
 });
 
 client.on("error", console.error);
