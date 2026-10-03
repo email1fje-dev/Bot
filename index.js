@@ -67,22 +67,44 @@ function levelFromXP(xp) {
 }
 
 async function ensureLevelRole(guild, roleInfo, repair = false) {
-  let role = guild.roles.cache.find(r => r.name === roleInfo.name && r.managed === false);
-  if (!role) {
-    role = await guild.roles.create({
-      name: roleInfo.name,
-      color: roleInfo.color,
-      unicodeEmoji: roleInfo.emoji,
-      reason: "Level system role"
-    }).catch(() => null);
-  } else if (repair) {
+  let role = guild.roles.cache.find(r => r.name === roleInfo.name && !r.managed);
+
+  const me = guild.members.me;
+  const editable = role && me ? role.position < me.roles.highest.position : false;
+
+  if (!role || (repair && !editable)) {
+    if (!role || !editable) {
+      role = await guild.roles.create({
+        name: roleInfo.name,
+        color: roleInfo.color,
+        unicodeEmoji: roleInfo.emoji,
+        reason: repair ? "Repair level system role" : "Level system role"
+      }).catch(() => null);
+    }
+  }
+
+  if (role && repair) {
     await role.edit({
       color: roleInfo.color,
       unicodeEmoji: roleInfo.emoji,
       reason: "Repair level system role"
     }).catch(() => {});
   }
+
   return role;
+}
+
+function findLevelSticker(guild, roleInfo) {
+  const names = [
+    `level-${roleInfo.level}`,
+    `level ${roleInfo.level}`,
+    roleInfo.name,
+    roleInfo.name.toLowerCase(),
+    `levelup-${roleInfo.level}`
+  ];
+  return guild.stickers.cache.find(sticker =>
+    names.some(name => sticker.name.toLowerCase() === name.toLowerCase())
+  ) || null;
 }
 
 async function applyLevelRole(member, level) {
@@ -579,7 +601,13 @@ client.on("messageCreate", async message => {
         .setTimestamp();
       const levelChannel = s.levelChannel ? message.guild.channels.cache.get(s.levelChannel) : null;
       const targetChannel = levelChannel?.isTextBased() ? levelChannel : message.channel;
-      await targetChannel.send({embeds:[embed]}).catch(() => {});
+      const levelInfo = LEVEL_ROLES.find(r => data.level >= r.level && r.level === data.level)
+        || LEVEL_ROLES.filter(r => data.level >= r.level).sort((a,b) => b.level - a.level)[0];
+      const sticker = levelInfo ? findLevelSticker(message.guild, levelInfo) : null;
+
+      const payload = {embeds:[embed]};
+      if (sticker) payload.stickers = [sticker];
+      await targetChannel.send(payload).catch(() => {});
     }
   }
 
