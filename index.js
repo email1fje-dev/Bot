@@ -248,6 +248,11 @@ const commands = [
   new SlashCommandBuilder().setName("setlevelchannel").setDescription("Set or disable the Level Up channel.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addChannelOption(o => o.setName("channel").setDescription("Channel for Level Up messages.").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(false)),
+    
+  new SlashCommandBuilder().setName("levelset").setDescription("Set a member's level.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true))
+    .addIntegerOption(o => o.setName("level").setDescription("New level.").setMinValue(1).setMaxValue(1000).setRequired(true)),
 
   new SlashCommandBuilder().setName("config").setDescription("Configure security protection.")
     .addStringOption(o => o.setName("feature").setDescription("Feature.").setRequired(true)
@@ -385,7 +390,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","setlevelchannel","config","raidmode","ticketpanel","rules","levelsetup","setuplevel"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -558,6 +563,45 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "setuplevel") {
       for (const roleInfo of LEVEL_ROLES) await ensureLevelRole(guild, roleInfo, true);
       return interaction.reply({content:"🔧✨ **Level system repaired!**\n\nAll Level roles were created/fixed with their colors and icons.",ephemeral:true});
+    }
+    
+    if (interaction.commandName === "levelset") {
+      const user = interaction.options.getUser("user", true);
+      const level = interaction.options.getInteger("level", true);
+      const member = await guild.members.fetch(user.id).catch(() => null);
+      if (!member) return interaction.reply({content:"❌ I couldn't find that member in this server.",ephemeral:true});
+
+      const data = getLevelInfo(guild.id, user.id);
+      const oldLevel = data.level;
+      data.level = level;
+      data.xp = Math.max(0, (level - 1) * (level - 1) * 100);
+
+      const role = await applyLevelRole(member, level);
+      const roleInfo = LEVEL_ROLES.filter(r => level >= r.level).sort((a,b) => b.level - a.level)[0];
+      const settingsNow = getSettings(guild.id);
+      const levelChannel = settingsNow.levelChannel ? guild.channels.cache.get(settingsNow.levelChannel) : null;
+      const targetChannel = levelChannel?.isTextBased() ? levelChannel : null;
+
+      if (targetChannel) {
+        const embed = new EmbedBuilder()
+          .setTitle("✨ LEVEL SET!")
+          .setDescription("<@" + user.id + "> level was set to **Level " + level + "** by <@" + interaction.user.id + ">!\\n\\n" +
+            (role ? "🏷️ New role: <@&" + role.id + ">" : "No level role unlocked at this level."))
+          .setColor(roleInfo?.color || 0x9B59B6)
+          .setThumbnail(user.displayAvatarURL({size:256}))
+          .setTimestamp();
+
+        const sticker = roleInfo ? findLevelSticker(guild, roleInfo) : null;
+        const payload = {embeds:[embed]};
+        if (sticker) payload.stickers = [sticker];
+        await targetChannel.send(payload).catch(() => {});
+      }
+
+      return interaction.reply({
+        content:"✅ <@" + user.id + "> is now **Level " + level + "**. Old level: **" + oldLevel + "**." +
+          (targetChannel ? "\\n📢 Announced in <#" + targetChannel.id + ">." : "\\n⚠️ No Level Up channel is configured."),
+        ephemeral:true
+      });
     }
 
     if (interaction.commandName === "levelsetup") {
