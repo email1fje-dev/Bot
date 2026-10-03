@@ -309,7 +309,12 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "lockdown") {
       const enabled = interaction.options.getBoolean("enabled",true);
-      await interaction.channel.permissionOverwrites.edit(guild.roles.everyone,{SendMessages:enabled ? false : null});
+      await interaction.channel.permissionOverwrites.edit(guild.roles.everyone, {
+        SendMessages: enabled ? false : null,
+        CreatePublicThreads: enabled ? false : null,
+        CreatePrivateThreads: enabled ? false : null,
+        SendMessagesInThreads: enabled ? false : null
+      });
       return interaction.reply({content:enabled ? "🔒 Channel locked." : "🔓 Channel unlocked.",ephemeral:true});
     }
 
