@@ -1,3 +1,5 @@
+const { createClient } = require("@supabase/supabase-js");
+
 const {
   Client,
   GatewayIntentBits,
@@ -16,6 +18,14 @@ const {
 const TOKEN = process.env.DISCORD_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const HIDEM_PASSWORD = "3246";
+
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const db = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  : null;
+
+if (!db) console.warn("Supabase persistence is disabled. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Railway.");
 
 if (!TOKEN || !CLIENT_ID) {
   console.error("Missing DISCORD_TOKEN or CLIENT_ID environment variable.");
@@ -56,10 +66,111 @@ const LEVEL_ROLES = [
 ];
 
 function getLevelInfo(guildId, userId) {
-  const key = `${guildId}:${userId}`;
+  const key = guildId + ":" + userId;
   const data = levelData.get(key) || {xp:0,level:1,roles:{}};
   levelData.set(key,data);
   return data;
+}
+
+function serializeWarnings(warnings) {
+  return Object.fromEntries(warnings.entries());
+}
+
+function deserializeWarnings(value) {
+  const map = new Map();
+  if (!value || typeof value !== "object") return map;
+  for (const [userId, list] of Object.entries(value)) {
+    map.set(userId, Array.isArray(list) ? list : []);
+  }
+  return map;
+}
+
+async function loadPersistentData() {
+  if (!db) return;
+
+  const [settingsResult, levelsResult, invitesResult] = await Promise.all([
+    db.from("discord_guild_settings").select("*"),
+    db.from("discord_user_levels").select("*"),
+    db.from("discord_invite_stats").select("*")
+  ]);
+
+  if (settingsResult.error) console.error("Failed to load guild settings:", settingsResult.error.message);
+  else for (const row of settingsResult.data || []) {
+    settings.set(row.guild_id, {
+      antilink: row.antilink,
+      antispam: row.antispam,
+      antiraid: row.antiraid,
+      antimention: row.antimention,
+      antiinvite: row.antiinvite,
+      logs: row.logs_channel_id,
+      welcome: row.welcome_channel_id,
+      inviteLog: row.invite_log_channel_id,
+      levelChannel: row.level_channel_id,
+      warnings: deserializeWarnings(row.warnings)
+    });
+  }
+
+  if (levelsResult.error) console.error("Failed to load level data:", levelsResult.error.message);
+  else for (const row of levelsResult.data || []) {
+    levelData.set(row.guild_id + ":" + row.user_id, {
+      xp: Number(row.xp) || 0,
+      level: Number(row.level) || 1,
+      roles: row.roles && typeof row.roles === "object" ? row.roles : {}
+    });
+  }
+
+  if (invitesResult.error) console.error("Failed to load invite stats:", invitesResult.error.message);
+  else for (const row of invitesResult.data || []) {
+    inviteCounts.set(row.guild_id + ":" + row.user_id, Number(row.invite_count) || 0);
+  }
+
+  console.log("Persistent bot data loaded from Supabase.");
+}
+
+async function saveGuildSettings(guildId) {
+  if (!db) return;
+  const s = getSettings(guildId);
+  const { error } = await db.from("discord_guild_settings").upsert({
+    guild_id: guildId,
+    antilink: s.antilink,
+    antispam: s.antispam,
+    antiraid: s.antiraid,
+    antimention: s.antimention,
+    antiinvite: s.antiinvite,
+    logs_channel_id: s.logs,
+    welcome_channel_id: s.welcome,
+    invite_log_channel_id: s.inviteLog,
+    level_channel_id: s.levelChannel,
+    warnings: serializeWarnings(s.warnings),
+    updated_at: new Date().toISOString()
+  });
+  if (error) console.error("Failed to save guild settings:", error.message);
+}
+
+async function saveLevelData(guildId, userId) {
+  if (!db) return;
+  const data = getLevelInfo(guildId, userId);
+  const { error } = await db.from("discord_user_levels").upsert({
+    guild_id: guildId,
+    user_id: userId,
+    xp: data.xp,
+    level: data.level,
+    roles: data.roles,
+    updated_at: new Date().toISOString()
+  });
+  if (error) console.error("Failed to save level data:", error.message);
+}
+
+async function saveInviteCount(guildId, userId) {
+  if (!db) return;
+  const key = guildId + ":" + userId;
+  const { error } = await db.from("discord_invite_stats").upsert({
+    guild_id: guildId,
+    user_id: userId,
+    invite_count: inviteCounts.get(key) || 0,
+    updated_at: new Date().toISOString()
+  });
+  if (error) console.error("Failed to save invite count:", error.message);
 }
 
 function levelFromXP(xp) {
@@ -190,8 +301,7 @@ async function cacheGuildInvites(guild) {
     }
     inviteCache.set(guild.id, data);
   } catch (error) {
-    // Invite tracking requires Manage Server. Keep the bot running if unavailable.
-    console.warn(`Could not cache invites for ${guild.name}: missing permission or unavailable invites.`);
+    console.warn(`Could not cache invites for ${guild.name}: ${error.message}`);
   }
 }
 
@@ -297,6 +407,7 @@ async function registerCommands() {
 
 client.once("ready", async () => {
   console.log(`Logged in as ${client.user.tag}`);
+  await loadPersistentData();
   for (const guild of client.guilds.cache.values()) {
     await cacheGuildInvites(guild);
   }
@@ -423,9 +534,11 @@ client.on("interactionCreate", async interaction => {
       const channel = interaction.options.getChannel("channel");
       if (!channel) {
         s.welcome = null;
+        await saveGuildSettings(guild.id);
         return interaction.reply({content:"👋 Welcome messages disabled.",ephemeral:true});
       }
       s.welcome = channel.id;
+      await saveGuildSettings(guild.id);
       return interaction.reply({content:`✨ Welcome channel set to <#${channel.id}>.`,ephemeral:true});
     }
 
@@ -433,9 +546,11 @@ client.on("interactionCreate", async interaction => {
       const channel = interaction.options.getChannel("channel");
       if (!channel) {
         s.inviteLog = null;
+        await saveGuildSettings(guild.id);
         return interaction.reply({content:"📨 Invite tracker disabled.",ephemeral:true});
       }
       s.inviteLog = channel.id;
+      await saveGuildSettings(guild.id);
       return interaction.reply({content:`📨 Invite tracker channel set to <#${channel.id}>.`,ephemeral:true});
     }
 
@@ -443,9 +558,11 @@ client.on("interactionCreate", async interaction => {
       const channel = interaction.options.getChannel("channel");
       if (!channel) {
         s.levelChannel = null;
+        await saveGuildSettings(guild.id);
         return interaction.reply({content:"✨ Level Up messages will now appear in the channel where the level-up happens.",ephemeral:true});
       }
       s.levelChannel = channel.id;
+      await saveGuildSettings(guild.id);
       return interaction.reply({content:`✨ Level Up channel set to <#${channel.id}>.`,ephemeral:true});
     }
 
@@ -482,6 +599,7 @@ client.on("interactionCreate", async interaction => {
       const reason = interaction.options.getString("reason",true);
       if (!s.warnings.has(user.id)) s.warnings.set(user.id,[]);
       s.warnings.get(user.id).push({reason,by:interaction.user.id,at:Date.now()});
+      await saveGuildSettings(guild.id);
       await modLog(guild,`⚠️ <@${user.id}> was warned by <@${interaction.user.id}>: ${reason}`);
       return interaction.reply({content:`⚠️ <@${user.id}> has been warned.`,ephemeral:true});
     }
@@ -496,6 +614,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "clearwarnings") {
       const user = interaction.options.getUser("user",true);
       s.warnings.delete(user.id);
+      await saveGuildSettings(guild.id);
       await modLog(guild,`🧹 Warnings cleared for <@${user.id}> by <@${interaction.user.id}>.`);
       return interaction.reply({content:"✅ Warnings cleared.",ephemeral:true});
     }
@@ -543,6 +662,7 @@ client.on("interactionCreate", async interaction => {
     if (interaction.commandName === "setlogs") {
       const channel = interaction.options.getChannel("channel",true);
       s.logs = channel.id;
+      await saveGuildSettings(guild.id);
       return interaction.reply({content:`✅ Logs set to <#${channel.id}>.`,ephemeral:true});
     }
 
@@ -550,6 +670,7 @@ client.on("interactionCreate", async interaction => {
       const feature = interaction.options.getString("feature",true);
       const enabled = interaction.options.getBoolean("enabled",true);
       s[feature] = enabled;
+      await saveGuildSettings(guild.id);
       return interaction.reply({content:`✅ ${feature} is now **${enabled ? "enabled" : "disabled"}**.`,ephemeral:true});
     }
 
@@ -575,12 +696,15 @@ client.on("interactionCreate", async interaction => {
       const oldLevel = data.level;
       data.level = level;
       data.xp = Math.max(0, (level - 1) * (level - 1) * 100);
+      await saveLevelData(guild.id, user.id);
 
       const role = await applyLevelRole(member, level);
       const roleInfo = LEVEL_ROLES.filter(r => level >= r.level).sort((a,b) => b.level - a.level)[0];
       const settingsNow = getSettings(guild.id);
       const levelChannel = settingsNow.levelChannel ? guild.channels.cache.get(settingsNow.levelChannel) : null;
       const targetChannel = levelChannel?.isTextBased() ? levelChannel : null;
+
+      await saveLevelData(guild.id, user.id);
 
       if (targetChannel) {
         const embed = new EmbedBuilder()
@@ -658,6 +782,7 @@ client.on("messageCreate", async message => {
     const oldLevel = data.level;
     data.xp += 15 + Math.floor(Math.random() * 11);
     data.level = levelFromXP(data.xp);
+    await saveLevelData(message.guild.id, message.author.id);
     if (data.level > oldLevel) {
       const role = await applyLevelRole(message.member, data.level);
       const embed = new EmbedBuilder()
@@ -740,6 +865,7 @@ client.on("guildMemberAdd", async member => {
   if (usedInvite?.inviter) {
     const key = `${member.guild.id}:${usedInvite.inviter.id}`;
     inviteCounts.set(key, (inviteCounts.get(key) || 0) + 1);
+    await saveInviteCount(member.guild.id, usedInvite.inviter.id);
   }
 
   // Beautiful welcome embed.
