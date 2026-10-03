@@ -42,6 +42,51 @@ const raidMode = new Set();
 const inviteCache = new Map();
 const inviteCounts = new Map();
 
+// XP / level system. Runtime only; resets if the bot restarts.
+const levelData = new Map();
+const levelCooldown = new Map();
+const LEVEL_ROLES = [
+  {level:5,name:"Novice"},
+  {level:10,name:"Arcane"},
+  {level:20,name:"Mystic"},
+  {level:30,name:"Ascendant"},
+  {level:50,name:"Celestial"},
+  {level:75,name:"Immortal"},
+  {level:100,name:"Legend"}
+];
+
+function getLevelInfo(guildId, userId) {
+  const key = `${guildId}:${userId}`;
+  const data = levelData.get(key) || {xp:0,level:1,roles:{}};
+  levelData.set(key,data);
+  return data;
+}
+
+function levelFromXP(xp) {
+  return Math.max(1, Math.floor(Math.sqrt(xp / 100)) + 1);
+}
+
+async function ensureLevelRole(guild, roleInfo) {
+  const existing = guild.roles.cache.find(r => r.name === roleInfo.name && r.managed === false);
+  if (existing) return existing;
+  return guild.roles.create({name:roleInfo.name,reason:"Level system role"}).catch(() => null);
+}
+
+async function applyLevelRole(member, level) {
+  const data = getLevelInfo(member.guild.id, member.id);
+  const unlocked = LEVEL_ROLES.filter(r => level >= r.level).sort((a,b) => b.level-a.level)[0];
+  if (!unlocked) return null;
+  const role = await ensureLevelRole(member.guild, unlocked);
+  if (!role) return null;
+  for (const r of LEVEL_ROLES) {
+    const oldRole = member.guild.roles.cache.find(x => x.name === r.name && !x.managed);
+    if (oldRole && oldRole.id !== role.id && member.roles.cache.has(oldRole.id)) await member.roles.remove(oldRole).catch(() => {});
+  }
+  await member.roles.add(role).catch(() => {});
+  data.roles[level] = role.id;
+  return role;
+}
+
 function getSettings(guildId) {
   if (!settings.has(guildId)) {
     settings.set(guildId, {
@@ -76,19 +121,6 @@ async function modLog(guild, text) {
 
 async function cacheGuildInvites(guild) {
   try {
-    if (interaction.commandName === "rules") {
-      const channel = interaction.options.getChannel("channel", true);
-      const embed = new EmbedBuilder()
-        .setAuthor({name:guild.name, iconURL:guild.iconURL({size:128}) || undefined})
-        .setTitle("📜 SERVER RULES")
-        .setDescription("━━━━━━━━━━━━━━━━━━━━\\n1️⃣ **Respect** — Treat everyone with respect.\\n2️⃣ **No Spam** — No message, emoji, or mention spam.\\n3️⃣ **No Advertising** — No ads without staff permission.\\n4️⃣ **Keep It Appropriate** — Follow Discord rules and keep the server appropriate.\\n5️⃣ **No Raiding** — No raids or intentional disruption.\\n6️⃣ **Right Channels** — Use channels for their intended purpose.\\n7️⃣ **Follow Staff** — Respect staff instructions.\\n8️⃣ **No Exploits/Scams** — No malicious files, scams, or harmful content.\\n━━━━━━━━━━━━━━━━━━━━")
-        .setColor(0x5865F2)
-        .setFooter({text:"By staying in this server, you agree to follow these rules."})
-        .setTimestamp();
-      await channel.send({embeds:[embed]});
-      return interaction.reply({content:"✅ Rules panel sent to <#" + channel.id + ">.",ephemeral:true});
-    }
-
     const invites = await guild.invites.fetch();
     const data = new Map();
     for (const invite of invites.values()) {
@@ -174,6 +206,9 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addChannelOption(o => o.setName("channel").setDescription("Channel where the rules will be posted.")
       .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement).setRequired(true)),
+
+  new SlashCommandBuilder().setName("levelsetup").setDescription("Create and enable the level-up roles.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString()),
 
   new SlashCommandBuilder().setName("serverinfo").setDescription("Show server information."),
   new SlashCommandBuilder().setName("userinfo").setDescription("Show information about a member.")
@@ -283,7 +318,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","config","raidmode","ticketpanel","rules"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setlogs","setwelcome","setinvitelog","config","raidmode","ticketpanel","rules","levelsetup"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -443,6 +478,28 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({content:enabled ? "🚨 Raid mode enabled." : "🟢 Raid mode disabled.",ephemeral:true});
     }
 
+    if (interaction.commandName === "levelsetup") {
+      const created = [];
+      for (const roleInfo of LEVEL_ROLES) {
+        const role = await ensureLevelRole(guild, roleInfo);
+        if (role) created.push(`<@&${role.id}> → Level ${roleInfo.level}`);
+      }
+      return interaction.reply({content:"✨ **Level system enabled!**\\n\\n" + created.join("\\n") + "\\n\\nMembers earn XP from chatting and receive the matching role automatically.",ephemeral:true});
+    }
+
+    if (interaction.commandName === "rules") {
+      const channel = interaction.options.getChannel("channel", true);
+      const embed = new EmbedBuilder()
+        .setAuthor({name:guild.name, iconURL:guild.iconURL({size:128}) || undefined})
+        .setTitle("📜 SERVER RULES")
+        .setDescription("━━━━━━━━━━━━━━━━━━━━\\n1️⃣ **Respect** — Treat everyone with respect.\\n2️⃣ **No Spam** — No message, emoji, or mention spam.\\n3️⃣ **No Advertising** — No ads without staff permission.\\n4️⃣ **Keep It Appropriate** — Follow Discord rules and keep the server appropriate.\\n5️⃣ **No Raiding** — No raids or intentional disruption.\\n6️⃣ **Right Channels** — Use channels for their intended purpose.\\n7️⃣ **Follow Staff** — Respect staff instructions.\\n8️⃣ **No Exploits/Scams** — No malicious files, scams, or harmful content.\\n━━━━━━━━━━━━━━━━━━━━")
+        .setColor(0x5865F2)
+        .setFooter({text:"By staying in this server, you agree to follow these rules."})
+        .setTimestamp();
+      await channel.send({embeds:[embed]});
+      return interaction.reply({content:"✅ Rules panel sent to <#" + channel.id + ">.",ephemeral:true});
+    }
+
     if (interaction.commandName === "serverinfo") {
       return interaction.reply({content:`📊 **${guild.name}**\nMembers: ${guild.memberCount}\nChannels: ${guild.channels.cache.size}\nRoles: ${guild.roles.cache.size}`,ephemeral:true});
     }
@@ -465,6 +522,28 @@ const linkRegex = /(?:https?:\/\/|www\.|discord\.gg\/|discord(?:app)?\.com\/invi
 client.on("messageCreate", async message => {
   if (!message.guild || message.author.bot) return;
   const s = getSettings(message.guild.id);
+
+  // Leveling: one XP gain per user every 10 seconds.
+  const xpKey = `${message.guild.id}:${message.author.id}`;
+  const now = Date.now();
+  if (!levelCooldown.has(xpKey) || now - levelCooldown.get(xpKey) >= 10000) {
+    levelCooldown.set(xpKey, now);
+    const data = getLevelInfo(message.guild.id, message.author.id);
+    const oldLevel = data.level;
+    data.xp += 15 + Math.floor(Math.random() * 11);
+    data.level = levelFromXP(data.xp);
+    if (data.level > oldLevel) {
+      const role = await applyLevelRole(message.member, data.level);
+      const embed = new EmbedBuilder()
+        .setTitle("✨ LEVEL UP!")
+        .setDescription(`<@${message.author.id}> reached **Level ${data.level}**!\\n\\n${role ? `🏷️ New role: <@&${role.id}>` : "Keep chatting to unlock your next rank!"}`)
+        .setColor(0x9B59B6)
+        .setThumbnail(message.author.displayAvatarURL({size:256}))
+        .setTimestamp();
+      await message.channel.send({embeds:[embed]}).catch(() => {});
+    }
+  }
+
   if (isAdmin(message.member)) return;
 
   // Anti-link / Anti-invite.
