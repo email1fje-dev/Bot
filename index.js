@@ -98,6 +98,7 @@ function getSettings(guildId) {
       logs: null,
       welcome: null,
       inviteLog: null,
+      levelChannel: null,
       warnings: new Map()
     });
   }
