@@ -247,6 +247,28 @@ const commands = [
     .addSubcommand(s => s.setName("nowplaying").setDescription("Show the current track."))
 ];
 
+async function searchDeezer(query) {
+  const url = "https://api.deezer.com/search?q=" + encodeURIComponent(query) + "&limit=8";
+  const response = await fetch(url, {
+    headers: { "User-Agent": "DiscordMusicBot/1.0" }
+  });
+  if (!response.ok) throw new Error("Deezer search is temporarily unavailable.");
+  const data = await response.json();
+
+  return (data.data || [])
+    .filter(x => x.preview && x.title && x.artist?.name)
+    .map(x => ({
+      title: x.title + " — " + x.artist.name,
+      trackName: x.title,
+      artist: x.artist.name,
+      album: x.album?.title || "Unknown album",
+      artwork: x.album?.cover_medium || x.album?.cover || null,
+      previewUrl: x.preview,
+      pageUrl: x.link || null,
+      source: "Deezer"
+    }));
+}
+
 async function searchITunes(query) {
   const url = "https://itunes.apple.com/search?term=" +
     encodeURIComponent(query) +
@@ -256,19 +278,39 @@ async function searchITunes(query) {
     headers: { "User-Agent": "DiscordMusicBot/1.0" }
   });
 
-  if (!response.ok) throw new Error("Music search is temporarily unavailable.");
+  if (!response.ok) throw new Error("iTunes search is temporarily unavailable.");
   const data = await response.json();
 
   return (data.results || [])
     .filter(x => x.previewUrl && x.trackName && x.artistName)
     .map(x => ({
       title: x.trackName + " — " + x.artistName,
+      trackName: x.trackName,
       artist: x.artistName,
       album: x.collectionName || "Unknown album",
       artwork: x.artworkUrl100 || null,
       previewUrl: x.previewUrl,
-      pageUrl: x.trackViewUrl || null
+      pageUrl: x.trackViewUrl || null,
+      source: "Apple Music"
     }));
+}
+
+async function searchMusic(query) {
+  try {
+    const deezer = await searchDeezer(query);
+    if (deezer.length) return deezer;
+  } catch (error) {
+    console.error("Deezer search failed:", error.message);
+  }
+
+  try {
+    const itunes = await searchITunes(query);
+    if (itunes.length) return itunes;
+  } catch (error) {
+    console.error("iTunes fallback search failed:", error.message);
+  }
+
+  return [];
 }
 
 async function handleInteraction(interaction) {
@@ -287,7 +329,7 @@ async function handleInteraction(interaction) {
     await interaction.deferReply();
 
     try {
-      const results = await searchITunes(query);
+      const results = await searchMusic(query);
 
       if (!results.length) {
         await interaction.editReply("❌ برای **" + query + "** چیزی پیدا نکردم.");
@@ -318,7 +360,7 @@ async function handleInteraction(interaction) {
             .setTitle("🔎 Music Search")
             .setDescription(lines.join("\\n\\n"))
             .setColor(0x5865F2)
-            .setFooter({ text: "Preview from the iTunes catalog" })
+            .setFooter({ text: "30-second preview • Deezer / Apple Music" })
         ],
         components: [row]
       });
@@ -473,7 +515,7 @@ function attach(client) {
       const wasIdle = !state.current;
       state.queue.push({
         url: item.previewUrl,
-        title: item.title + " (Preview)",
+        title: item.title + " (Preview • " + (item.source || "Music") + ")",
         requestedBy: interaction.user.id,
         artwork: item.artwork,
         pageUrl: item.pageUrl
