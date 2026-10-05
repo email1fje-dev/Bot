@@ -174,7 +174,7 @@ async function handleInteraction(interaction,ctx){
       return interaction.reply({content:"📦 Server structure backup created.",files:[new AttachmentBuilder(Buffer.from(JSON.stringify(data,null,2)),{name:"server-backup.json"})],ephemeral:true});
     }
     const file=interaction.options.getAttachment("file",true); if(!file.name.toLowerCase().endsWith(".json"))return interaction.reply({content:"❌ Backup must be JSON.",ephemeral:true});
-    const response=await fetch(file.url).catch(()=>null), data=await response?.json().catch(()=>null);
+    const response=await fetch(file.url).catch(()=>null); if(!response?.ok)return interaction.reply({content:"❌ Could not download the backup file.",ephemeral:true}); const data=await response.json().catch(()=>null);
     if(!data?.version||!Array.isArray(data.roles)||!Array.isArray(data.channels))return interaction.reply({content:"❌ Invalid backup.",ephemeral:true});
     let roles=0,channels=0; const cats=new Map();
     for(const r of data.roles){if(guild.roles.cache.some(x=>x.name===r.name&&!x.managed))continue;await guild.roles.create({name:r.name,color:r.color,hoist:!!r.hoist,mentionable:!!r.mentionable,reason:"Backup restore"}).then(()=>roles++).catch(()=>{});}
@@ -195,4 +195,4 @@ function attach(client,ctx){
     if(a.badwords&&/(badword1|badword2|badword3)/i.test(message.content))await message.delete().catch(()=>{});
   });
 }
-module.exports={commands,handleInteraction,attach};
+function getXPMultiplier(guildId){return xpState(guildId).multiplier||1;}\nmodule.exports={commands,handleInteraction,attach,getXPMultiplier};
