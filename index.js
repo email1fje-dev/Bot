@@ -665,11 +665,16 @@ client.on("interactionCreate", async interaction => {
         .setFooter({text:"Ticket System"});
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("ticket_create")
-          .setLabel("Create Ticket")
-          .setEmoji("🎫")
-          .setStyle(ButtonStyle.Primary)
+        new StringSelectMenuBuilder()
+          .setCustomId("ticket_type_select")
+          .setPlaceholder("🎫 Select a ticket type")
+          .addOptions(
+            {label:"Support",value:"support",emoji:"🛠️",description:"General help and support"},
+            {label:"Bug Report",value:"bug",emoji:"🐛",description:"Report a bug or technical issue"},
+            {label:"Report a User",value:"report",emoji:"🚨",description:"Report a member or user"},
+            {label:"Partnership",value:"partnership",emoji:"🤝",description:"Partnership and collaboration"},
+            {label:"Other",value:"other",emoji:"❓",description:"Anything else"}
+          )
       );
 
       await interaction.channel.send({embeds:[embed],components:[row]});
