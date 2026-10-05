@@ -84,7 +84,8 @@ async function makeResource(item, state) {
 
   const ffmpeg = spawn(ffmpegPath, [
     "-hide_banner",
-    "-loglevel", "error",
+    "-loglevel", "warning",
+    "-re",
     "-i", "pipe:0",
     "-vn",
     "-f", "s16le",
@@ -96,8 +97,17 @@ async function makeResource(item, state) {
   state.ffmpeg = ffmpeg;
   input.pipe(ffmpeg.stdin);
 
+  ffmpeg.stderr.on("data", chunk => {
+    const message = chunk.toString().trim();
+    if (message) console.error("FFmpeg:", message);
+  });
+
   ffmpeg.on("error", error => {
     console.error("FFmpeg error:", error.message);
+  });
+
+  ffmpeg.stdin.on("error", error => {
+    if (error.code !== "EPIPE") console.error("FFmpeg stdin error:", error.message);
   });
 
   ffmpeg.on("close", () => {
@@ -296,18 +306,19 @@ async function searchITunes(query) {
 }
 
 async function searchMusic(query) {
-  try {
-    const deezer = await searchDeezer(query);
-    if (deezer.length) return deezer;
-  } catch (error) {
-    console.error("Deezer search failed:", error.message);
-  }
-
+  // Apple preview URLs are generally more reliable for server-side playback.
   try {
     const itunes = await searchITunes(query);
     if (itunes.length) return itunes;
   } catch (error) {
-    console.error("iTunes fallback search failed:", error.message);
+    console.error("Apple Music search failed:", error.message);
+  }
+
+  try {
+    const deezer = await searchDeezer(query);
+    if (deezer.length) return deezer;
+  } catch (error) {
+    console.error("Deezer fallback search failed:", error.message);
   }
 
   return [];
@@ -360,7 +371,7 @@ async function handleInteraction(interaction) {
             .setTitle("🔎 Music Search")
             .setDescription(lines.join("\\n\\n"))
             .setColor(0x5865F2)
-            .setFooter({ text: "30-second preview • Deezer / Apple Music" })
+            .setFooter({ text: "30-second preview • Apple Music / Deezer" })
         ],
         components: [row]
       });
