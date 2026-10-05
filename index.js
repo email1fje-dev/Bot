@@ -1,5 +1,6 @@
 const extraFeatures = require("./extraFeatures");
 const { createClient } = require("@supabase/supabase-js");
+const ws = require("ws");
 
 const {
   Client,
@@ -23,7 +24,9 @@ const HIDEM_PASSWORD = "3246";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const db = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
-  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      realtime: { transport: ws }
+    })
   : null;
 
 if (!db) console.warn("Supabase persistence is disabled. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Railway.");
