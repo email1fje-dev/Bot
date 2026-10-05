@@ -577,7 +577,6 @@ client.on("interactionCreate", async interaction => {
       const type = interaction.customId.split(":")[1];
       const types = {
         support:{label:"Support",emoji:"🛠️",text:"Please describe your issue and our support team will assist you."},
-        purchase:{label:"Purchase / Payment",emoji:"💰",text:"Please provide the purchase or payment details we need to help you."},
         bug:{label:"Bug Report",emoji:"🐛",text:"Please describe the bug, steps to reproduce it, and what you expected to happen."},
         report:{label:"Report a User",emoji:"🚨",text:"Please provide the user and a clear description of the report."},
         partnership:{label:"Partnership",emoji:"🤝",text:"Please tell us about your partnership proposal."},
@@ -611,7 +610,6 @@ client.on("interactionCreate", async interaction => {
         components:[new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder().setCustomId("ticket_type_select").setPlaceholder("Select a ticket type").addOptions(
             {label:"Support",value:"support",emoji:"🛠️",description:"General help and support"},
-            {label:"Purchase / Payment",value:"purchase",emoji:"💰",description:"Purchases and payment issues"},
             {label:"Bug Report",value:"bug",emoji:"🐛",description:"Report a bug or technical issue"},
             {label:"Report a User",value:"report",emoji:"🚨",description:"Report a member or user"},
             {label:"Partnership",value:"partnership",emoji:"🤝",description:"Partnership and collaboration"},
