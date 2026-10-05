@@ -327,6 +327,10 @@ async function handleInteraction(interaction) {
     }
 
     try {
+      // Voice connection / first audio fetch can take longer than Discord's
+      // 3-second interaction window, so acknowledge the interaction first.
+      await interaction.deferReply();
+
       await connect(member, state);
 
       const item = {
@@ -342,7 +346,7 @@ async function handleInteraction(interaction) {
 
       if (wasIdle) await playNext(interaction.guild.id);
 
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [
           new EmbedBuilder()
             .setTitle(sub === "radio" ? "📻 Radio Added" : "🎵 Track Added")
@@ -354,10 +358,12 @@ async function handleInteraction(interaction) {
         ]
       });
     } catch (error) {
-      await interaction.reply({
-        content: "❌ پخش نشد: " + error.message,
-        ephemeral: true
-      });
+      const content = "❌ پخش نشد: " + error.message;
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ content }).catch(() => {});
+      } else {
+        await interaction.reply({ content, ephemeral: true }).catch(() => {});
+      }
     }
 
     return true;
@@ -438,6 +444,9 @@ function attach(client) {
     }
 
     try {
+      // A component interaction also has a short acknowledgement window.
+      await interaction.deferUpdate();
+
       await connect(member, state);
 
       const wasIdle = !state.current;
@@ -451,16 +460,18 @@ function attach(client) {
 
       if (wasIdle) await playNext(interaction.guild.id);
 
-      await interaction.update({
+      await interaction.editReply({
         content: "🎵 **" + item.title + "** به موزیک پلیر اضافه شد.",
         embeds: [],
         components: []
       });
     } catch (error) {
-      await interaction.reply({
-        content: "❌ پخش نشد: " + error.message,
-        ephemeral: true
-      });
+      const content = "❌ پخش نشد: " + error.message;
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ content, components: [] }).catch(() => {});
+      } else {
+        await interaction.reply({ content, ephemeral: true }).catch(() => {});
+      }
     }
   });
 
