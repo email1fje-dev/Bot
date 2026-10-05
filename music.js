@@ -133,28 +133,49 @@ async function playNext(guildId) {
 
 async function connect(member, state) {
   const channel = member.voice.channel;
-  if (!channel) throw new Error("Join a voice channel first.");
+  if (!channel) throw new Error("🎧 اول وارد یک Voice Channel شو.");
+
+  // Discord must allow the bot to Connect and Speak in the target channel.
+  const botMember = channel.guild.members.me;
+  const permissions = botMember ? channel.permissionsFor(botMember) : null;
+  if (permissions) {
+    if (!permissions.has("Connect")) {
+      throw new Error("❌ بات دسترسی Connect به این Voice Channel ندارد.");
+    }
+    if (!permissions.has("Speak")) {
+      throw new Error("❌ بات دسترسی Speak به این Voice Channel ندارد.");
+    }
+  }
 
   if (state.connection && state.channelId !== channel.id) {
-    state.connection.destroy();
+    try { state.connection.destroy(); } catch {}
     state.connection = null;
+    state.channelId = null;
   }
 
   if (!state.connection) {
-    state.connection = joinVoiceChannel({
+    const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: member.guild.id,
       adapterCreator: member.guild.voiceAdapterCreator,
-      selfDeaf: true
+      selfDeaf: true,
+      selfMute: false
     });
+
+    state.connection = connection;
     state.channelId = channel.id;
 
-    await entersState(
-      state.connection,
-      VoiceConnectionStatus.Ready,
-      15_000
-    );
-
+    try {
+      await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
+      connection.subscribe(state.player);
+    } catch (error) {
+      try { connection.destroy(); } catch {}
+      state.connection = null;
+      state.channelId = null;
+      console.error("Music voice connection failed:", error);
+      throw new Error("❌ نتونستم وارد Voice بشم. دسترسی Connect/Speak بات رو بررسی کن.");
+    }
+  } else {
     state.connection.subscribe(state.player);
   }
 
