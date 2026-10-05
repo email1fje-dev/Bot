@@ -569,12 +569,12 @@ client.on("inviteDelete", invite => {
 });
 
 client.on("interactionCreate", async interaction => {
-  if (interaction.isButton()) {
+  if (interaction.isButton() || interaction.isStringSelectMenu()) {
     const guild = interaction.guild;
     if (!guild) return interaction.reply({content:"❌ This can only be used in a server.",ephemeral:true});
 
-    if (interaction.customId.startsWith("ticket_type:")) {
-      const type = interaction.customId.split(":")[1];
+    if ((interaction.isButton() && interaction.customId.startsWith("ticket_type:")) || (interaction.isStringSelectMenu() && interaction.customId === "ticket_type_select")) {
+      const type = interaction.isStringSelectMenu() ? interaction.values[0] : interaction.customId.split(":")[1];
       const types = {
         support:{label:"Support",emoji:"🛠️",text:"Please describe your issue and our support team will assist you."},
         bug:{label:"Bug Report",emoji:"🐛",text:"Please describe the bug, steps to reproduce it, and what you expected to happen."},
