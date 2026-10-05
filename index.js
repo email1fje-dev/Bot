@@ -48,6 +48,8 @@ const settings = new Map();
 const spamTracker = new Map();
 const joinTracker = new Map();
 const raidMode = new Set();
+const dailyCooldown = new Map();
+const serverStats = new Map();
 
 // Invite tracking cache.
 // The bot needs "Manage Server" permission to fetch invite usage.
@@ -121,6 +123,7 @@ async function loadPersistentData() {
       antiraid: row.antiraid,
       antimention: row.antimention,
       antiinvite: row.antiinvite,
+      antibot: row.antibot ?? false,
       logs: row.logs_channel_id,
       logChannels: normalizeLogChannels(row.logs_channel_id),
       welcome: row.welcome_channel_id,
@@ -157,6 +160,7 @@ async function saveGuildSettings(guildId) {
     antiraid: s.antiraid,
     antimention: s.antimention,
     antiinvite: s.antiinvite,
+    antibot: !!s.antibot,
     logs_channel_id: serializeLogChannels(s),
     welcome_channel_id: s.welcome,
     invite_log_channel_id: s.inviteLog,
@@ -193,6 +197,24 @@ async function saveInviteCount(guildId, userId) {
   if (error) console.error("Failed to save invite count:", error.message);
 }
 
+async function getEconomy(guildId,userId){
+  const fallback={balance:0,inventory:[]}; if(!db)return fallback;
+  const {data,error}=await db.from("discord_economy").select("*").eq("guild_id",guildId).eq("user_id",userId).maybeSingle();
+  if(error){console.error("Economy load failed:",error.message);return fallback;}
+  return data?{balance:Number(data.balance)||0,inventory:Array.isArray(data.inventory)?data.inventory:[]}:fallback;
+}
+async function saveEconomy(guildId,userId,data){
+  if(!db)return;
+  const {error}=await db.from("discord_economy").upsert({guild_id:guildId,user_id:userId,balance:Math.max(0,Math.floor(data.balance||0)),inventory:Array.isArray(data.inventory)?data.inventory:[],updated_at:new Date().toISOString()});
+  if(error)console.error("Economy save failed:",error.message);
+}
+async function addModCase(guildId,action,targetUserId,moderatorUserId,reason){
+  if(!db)return null;
+  const {data,error}=await db.from("discord_mod_cases").insert({guild_id:guildId,action,target_user_id:targetUserId,moderator_user_id:moderatorUserId,reason:reason||"No reason provided"}).select("case_id").single();
+  if(error){console.error("Mod case save failed:",error.message);return null;} return data?.case_id||null;
+}
+const SHOP_ITEMS=[{id:"coffee",name:"☕ Coffee",price:100},{id:"cookie",name:"🍪 Cookie",price:250},{id:"gem",name:"💎 Gem",price:1000}];
+function statBucket(guildId){if(!serverStats.has(guildId))serverStats.set(guildId,{messages:0,joins:0,leaves:0});return serverStats.get(guildId);}
 function levelFromXP(xp) {
   return Math.max(1, Math.floor(Math.sqrt(xp / 100)) + 1);
 }
@@ -284,6 +306,7 @@ function getSettings(guildId) {
       antiraid: true,
       antimention: true,
       antiinvite: true,
+      antibot: false,
       logs: null,
       logChannels: {member:null, mod:null, server:null},
       welcome: null,
@@ -498,6 +521,19 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addSubcommand(sub => sub.setName("repair").setDescription("Repair Level Up roles, colors, and icons.")),
 
+  new SlashCommandBuilder().setName("rank").setDescription("Show a member's level and rank.").addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(false)),
+  new SlashCommandBuilder().setName("leaderboard").setDescription("Show the server XP leaderboard."),
+  new SlashCommandBuilder().setName("stats").setDescription("Show server statistics."),
+  new SlashCommandBuilder().setName("cases").setDescription("Show moderation cases for a member.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString()).addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true)),
+  new SlashCommandBuilder().setName("antibot").setDescription("Enable or disable automatic bot protection.").setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString()).addBooleanOption(o=>o.setName("enabled").setDescription("Enable?").setRequired(true)),
+  new SlashCommandBuilder().setName("balance").setDescription("Show your server wallet.").addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(false)),
+  new SlashCommandBuilder().setName("daily").setDescription("Claim your daily server coins."),
+  new SlashCommandBuilder().setName("pay").setDescription("Pay another member.").addUserOption(o=>o.setName("user").setDescription("Recipient.").setRequired(true)).addIntegerOption(o=>o.setName("amount").setDescription("Amount.").setMinValue(1).setRequired(true)),
+  new SlashCommandBuilder().setName("inventory").setDescription("Show your shop inventory.").addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(false)),
+  new SlashCommandBuilder().setName("shop").setDescription("Show the server shop."),
+  new SlashCommandBuilder().setName("buy").setDescription("Buy an item.").addStringOption(o=>o.setName("item").setDescription("Item ID.").setRequired(true).addChoices(...SHOP_ITEMS.map(x=>({name:x.id,value:x.id})))),
+  new SlashCommandBuilder().setName("coinflip").setDescription("Flip a virtual coin.").addStringOption(o=>o.setName("side").setDescription("Heads or tails.").setRequired(true).addChoices({name:"Heads",value:"heads"},{name:"Tails",value:"tails"})),
+  new SlashCommandBuilder().setName("dice").setDescription("Roll a virtual six-sided die."),
   new SlashCommandBuilder().setName("serverinfo").setDescription("Show server information."),
   new SlashCommandBuilder().setName("userinfo").setDescription("Show information about a member.")
     .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true))
@@ -607,7 +643,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -707,6 +743,62 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({embeds:[embed]});
     }
 
+    if (interaction.commandName === "rank") {
+      const user=interaction.options.getUser("user")||interaction.user,data=getLevelInfo(guild.id,user.id);
+      const rows=[...levelData.entries()].filter(([k])=>k.startsWith(guild.id+":")).sort((a,b)=>(b[1].xp||0)-(a[1].xp||0)),pos=rows.findIndex(([k])=>k.endsWith(":"+user.id))+1;
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("🏆 RANK").setDescription("<@"+user.id+"> is **Level "+data.level+"**.").addFields({name:"XP",value:String(data.xp),inline:true},{name:"Server Rank",value:pos>0?"#"+pos:"Unranked",inline:true}).setColor(0x9B59B6)]});
+    }
+    if (interaction.commandName === "leaderboard") {
+      const rows=[...levelData.entries()].filter(([k])=>k.startsWith(guild.id+":")).sort((a,b)=>(b[1].xp||0)-(a[1].xp||0)).slice(0,10);
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("🏆 SERVER LEADERBOARD").setDescription(rows.length?rows.map(([k,d],i)=>"**"+(i+1)+".** <@"+k.split(":")[1]+"> — Level **"+d.level+"** • "+d.xp+" XP").join("\n"):"No ranked members yet.").setColor(0xF1C40F)]});
+    }
+    if (interaction.commandName === "stats") {
+      const st=statBucket(guild.id);
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("📊 SERVER STATS").addFields({name:"Members",value:String(guild.memberCount),inline:true},{name:"Channels",value:String(guild.channels.cache.size),inline:true},{name:"Roles",value:String(guild.roles.cache.size),inline:true},{name:"Messages Seen",value:String(st.messages),inline:true},{name:"Joins Seen",value:String(st.joins),inline:true},{name:"Leaves Seen",value:String(st.leaves),inline:true}).setColor(0x5865F2)]});
+    }
+    if (interaction.commandName === "cases") {
+      const user=interaction.options.getUser("user",true); if(!db)return interaction.reply({content:"❌ Supabase persistence is not configured.",ephemeral:true});
+      const {data,error}=await db.from("discord_mod_cases").select("*").eq("guild_id",guild.id).eq("target_user_id",user.id).order("created_at",{ascending:false}).limit(10);
+      if(error)return interaction.reply({content:"❌ Could not load cases.",ephemeral:true});
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("🛡️ MODERATION CASES").setDescription((data||[]).map(c=>"**Case #"+c.case_id+"** — "+c.action+" — "+(c.reason||"No reason")).join("\n")||"No moderation cases.").setColor(0xED4245)],ephemeral:true});
+    }
+    if (interaction.commandName === "antibot") {
+      s.antibot=interaction.options.getBoolean("enabled",true); await saveGuildSettings(guild.id);
+      return interaction.reply({content:s.antibot?"🤖 Automatic bot protection enabled.":"🟢 Automatic bot protection disabled.",ephemeral:true});
+    }
+    if (interaction.commandName === "balance") {
+      const user=interaction.options.getUser("user")||interaction.user,e=await getEconomy(guild.id,user.id);
+      return interaction.reply({content:"💰 <@"+user.id+"> has **"+e.balance+"** coins."});
+    }
+    if (interaction.commandName === "daily") {
+      const key=guild.id+":"+interaction.user.id,last=dailyCooldown.get(key)||0;
+      if(Date.now()-last<86400000)return interaction.reply({content:"⏳ Daily already claimed. Try again tomorrow.",ephemeral:true});
+      const e=await getEconomy(guild.id,interaction.user.id);e.balance+=500;dailyCooldown.set(key,Date.now());await saveEconomy(guild.id,interaction.user.id,e);
+      return interaction.reply({content:"💰 You received **500** daily coins!"});
+    }
+    if (interaction.commandName === "pay") {
+      const user=interaction.options.getUser("user",true),amount=interaction.options.getInteger("amount",true);
+      if(user.bot||user.id===interaction.user.id)return interaction.reply({content:"❌ Invalid recipient.",ephemeral:true});
+      const from=await getEconomy(guild.id,interaction.user.id);if(from.balance<amount)return interaction.reply({content:"❌ Not enough coins.",ephemeral:true});
+      const to=await getEconomy(guild.id,user.id);from.balance-=amount;to.balance+=amount;await Promise.all([saveEconomy(guild.id,interaction.user.id,from),saveEconomy(guild.id,user.id,to)]);
+      return interaction.reply({content:"💸 Paid **"+amount+"** coins to <@"+user.id+">."});
+    }
+    if (interaction.commandName === "shop") return interaction.reply({content:"🛒 "+SHOP_ITEMS.map(x=>x.id+" = "+x.price+" coins").join(" • ")});
+    if (interaction.commandName === "buy") {
+      const item=SHOP_ITEMS.find(x=>x.id===interaction.options.getString("item",true)),e=await getEconomy(guild.id,interaction.user.id);
+      if(e.balance<item.price)return interaction.reply({content:"❌ Not enough coins.",ephemeral:true});
+      e.balance-=item.price;e.inventory.push(item);await saveEconomy(guild.id,interaction.user.id,e);return interaction.reply({content:"🛒 Bought **"+item.name+"**."});
+    }
+    if (interaction.commandName === "inventory") {
+      const user=interaction.options.getUser("user")||interaction.user,e=await getEconomy(guild.id,user.id);
+      return interaction.reply({content:"🎒 "+(e.inventory.length?e.inventory.map(x=>x.name).join(", "):"Inventory is empty.")});
+    }
+    if (interaction.commandName === "coinflip") {
+      const side=interaction.options.getString("side",true),result=Math.random()<0.5?"heads":"tails";
+      return interaction.reply("🪙 Result: **"+result+"** — "+(side===result?"You won!":"You lost!"));
+    }
+    if (interaction.commandName === "dice") return interaction.reply("🎲 You rolled **"+(1+Math.floor(Math.random()*6))+"**.");
+
     if (interaction.commandName === "hidem") {
       const channel = interaction.options.getChannel("channel",true);
       const message = interaction.options.getString("message",true);
@@ -722,6 +814,7 @@ client.on("interactionCreate", async interaction => {
       if (!s.warnings.has(user.id)) s.warnings.set(user.id,[]);
       s.warnings.get(user.id).push({reason,by:interaction.user.id,at:Date.now()});
       await saveGuildSettings(guild.id);
+      await addModCase(guild.id,"WARN",user.id,interaction.user.id,reason);
       await modLog(guild,`⚠️ <@${user.id}> was warned by <@${interaction.user.id}>: ${reason}`);
       return interaction.reply({content:`⚠️ <@${user.id}> has been warned.`,ephemeral:true});
     }
@@ -747,6 +840,7 @@ client.on("interactionCreate", async interaction => {
       const reason = interaction.options.getString("reason") || "No reason provided";
       if (!member.moderatable) return interaction.reply({content:"❌ I cannot timeout that member.",ephemeral:true});
       await member.timeout(minutes*60000,reason);
+      await addModCase(guild.id,"TIMEOUT",member.id,interaction.user.id,reason);
       await modLog(guild,`⏱️ <@${member.id}> timed out for ${minutes}m by <@${interaction.user.id}>: ${reason}`);
       return interaction.reply({content:`✅ <@${member.id}> timed out for ${minutes} minutes.`,ephemeral:true});
     }
@@ -758,6 +852,7 @@ client.on("interactionCreate", async interaction => {
       if (!member?.manageable) return interaction.reply({content:"❌ I cannot moderate that member.",ephemeral:true});
       if (interaction.commandName === "kick") await member.kick(reason);
       else await member.ban({reason});
+      await addModCase(guild.id,interaction.commandName.toUpperCase(),user.id,interaction.user.id,reason);
       await modLog(guild,`${interaction.commandName === "kick" ? "👢" : "🔨"} <@${user.id}> ${interaction.commandName}ed by <@${interaction.user.id}>: ${reason}`);
       return interaction.reply({content:`✅ Member ${interaction.commandName}ed.`,ephemeral:true});
     }
@@ -896,6 +991,7 @@ const linkRegex = /(?:https?:\/\/|www\.|discord\.gg\/|discord(?:app)?\.com\/invi
 client.on("messageCreate", async message => {
   if (!message.guild || message.author.bot) return;
   const s = getSettings(message.guild.id);
+  statBucket(message.guild.id).messages++;
 
   // Leveling: one XP gain per user every 10 seconds.
   const xpKey = `${message.guild.id}:${message.author.id}`;
@@ -961,6 +1057,9 @@ client.on("messageCreate", async message => {
 // Anti-raid + welcome + invite tracking.
 client.on("guildMemberAdd", async member => {
   const s = getSettings(member.guild.id);
+  statBucket(member.guild.id).joins++;
+  if(member.user.bot && s.antibot && member.id !== client.user.id){ await addModCase(member.guild.id,"AUTO_BOT",member.id,client.user.id,"Automatic bot-account protection"); await member.kick("Automatic bot-account protection").catch(()=>{}); return; }
+  if(s.antiraid && Date.now()-member.user.createdTimestamp<86400000) await modLog(member.guild,"⚠️ New account joined: <@"+member.id+"> (under 24h old).","server");
 
   // Determine which invite was used by comparing cached usage counts.
   let usedInvite = null;
@@ -1073,6 +1172,7 @@ client.on("guildMemberAdd", async member => {
 });
 
 client.on("guildMemberRemove", async member => {
+  statBucket(member.guild.id).leaves++;
   await sendLogEmbed(member.guild,"member",new EmbedBuilder()
     .setTitle("👋 MEMBER LEFT")
     .setDescription("<@" + member.id + "> left the server.")
