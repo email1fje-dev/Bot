@@ -8,7 +8,7 @@ const {
   SlashCommandBuilder,
   PermissionFlagsBits,
   ChannelType,
-  ActionRowBuilder,
+  ActionRowBuilder, StringSelectMenuBuilder,
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
@@ -573,49 +573,55 @@ client.on("interactionCreate", async interaction => {
     const guild = interaction.guild;
     if (!guild) return interaction.reply({content:"❌ This can only be used in a server.",ephemeral:true});
 
-    if (interaction.customId === "ticket_create") {
-      const existing = guild.channels.cache.find(ch =>
-        ch.type === ChannelType.GuildText &&
-        ch.topic === `ticket-owner:${interaction.user.id}`
-      );
-
-      if (existing) {
-        return interaction.reply({content:`🎫 You already have an open ticket: <#${existing.id}>`,ephemeral:true});
-      }
-
-      const channel = await guild.channels.create({
-        name: `ticket-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,16) || "user"}`,
-        type: ChannelType.GuildText,
-        topic: `ticket-owner:${interaction.user.id}`,
-        permissionOverwrites: [
-          {
-            id: guild.roles.everyone.id,
-            deny: [PermissionFlagsBits.ViewChannel]
-          },
-          {
-            id: interaction.user.id,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory]
-          },
-          {
-            id: client.user.id,
-            allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.ManageChannels]
-          }
+    if (interaction.customId.startsWith("ticket_type:")) {
+      const type = interaction.customId.split(":")[1];
+      const types = {
+        support:{label:"Support",emoji:"🛠️",text:"Please describe your issue and our support team will assist you."},
+        purchase:{label:"Purchase / Payment",emoji:"💰",text:"Please provide the purchase or payment details we need to help you."},
+        bug:{label:"Bug Report",emoji:"🐛",text:"Please describe the bug, steps to reproduce it, and what you expected to happen."},
+        report:{label:"Report a User",emoji:"🚨",text:"Please provide the user and a clear description of the report."},
+        partnership:{label:"Partnership",emoji:"🤝",text:"Please tell us about your partnership proposal."},
+        other:{label:"Other",emoji:"❓",text:"Please describe what you need help with."}
+      };
+      const selected=types[type]||types.other;
+      const existing=guild.channels.cache.find(ch=>ch.type===ChannelType.GuildText && ch.topic===`ticket-owner:${interaction.user.id}`);
+      if(existing)return interaction.reply({content:`🎫 You already have an open ticket: <#${existing.id}>`,ephemeral:true});
+      const channel=await guild.channels.create({
+        name:`ticket-${type}-${interaction.user.username.toLowerCase().replace(/[^a-z0-9]/g,"").slice(0,12)||"user"}`,
+        type:ChannelType.GuildText,
+        topic:`ticket-owner:${interaction.user.id} | ticket-type:${type}`,
+        permissionOverwrites:[
+          {id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},
+          {id:interaction.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]},
+          {id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.ManageChannels]}
         ]
       });
-
-      await channel.send({
-        content:`🎫 Welcome <@${interaction.user.id}>!\nPlease describe your issue and a staff member will help you.`,
-        components:[
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setEmoji("🛡️").setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId("ticket_close").setLabel("Close Ticket").setEmoji("🔒").setStyle(ButtonStyle.Danger)
-          )
-        ]
-      });
-
-      await modLog(guild,`🎫 Ticket created: <#${channel.id}> by <@${interaction.user.id}>.`);
-      return interaction.reply({content:`✅ Ticket created: <#${channel.id}>`,ephemeral:true});
+      const embed=new EmbedBuilder().setTitle(selected.emoji+" "+selected.label+" Ticket").setDescription("Hello <@"+interaction.user.id+">!\\n\\n"+selected.text).setColor(0x5865F2).setTimestamp();
+      await channel.send({embeds:[embed],components:[new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("ticket_claim").setLabel("Claim").setEmoji("🛡️").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("ticket_close").setLabel("Close Ticket").setEmoji("🔒").setStyle(ButtonStyle.Danger)
+      )]});
+      await modLog(guild,`🎫 ${selected.label} ticket created: <#${channel.id}> by <@${interaction.user.id}>.`);
+      return interaction.reply({content:`✅ ${selected.label} ticket created: <#${channel.id}>`,ephemeral:true});
     }
+
+    if (interaction.customId === "ticket_create") {
+      return interaction.reply({
+        content:"🎫 **Choose your ticket type**",
+        components:[new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder().setCustomId("ticket_type_select").setPlaceholder("Select a ticket type").addOptions(
+            {label:"Support",value:"support",emoji:"🛠️",description:"General help and support"},
+            {label:"Purchase / Payment",value:"purchase",emoji:"💰",description:"Purchases and payment issues"},
+            {label:"Bug Report",value:"bug",emoji:"🐛",description:"Report a bug or technical issue"},
+            {label:"Report a User",value:"report",emoji:"🚨",description:"Report a member or user"},
+            {label:"Partnership",value:"partnership",emoji:"🤝",description:"Partnership and collaboration"},
+            {label:"Other",value:"other",emoji:"❓",description:"Anything else"}
+          )
+        )],
+        ephemeral:true
+      });
+    }
+
 
     if (interaction.customId === "ticket_claim") {
       if (!isAdmin(interaction.member)) return interaction.reply({content:"❌ Only staff with Administrator permission can claim tickets.",ephemeral:true});
