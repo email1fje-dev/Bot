@@ -1,11 +1,13 @@
-const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, AttachmentBuilder } = require("discord.js");\nconst music = require("./music");
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, EmbedBuilder, AttachmentBuilder } = require("discord.js");
+const music = require("./music");
 
 const state = {
   automod:new Map(), welcome:new Map(), goodbye:new Map(), xp:new Map(),
   ticket:new Map(), giveaways:new Map()
 };
 
-const commands = [\n  ...music.commands.map(c => c),
+const commands = [
+  ...music.commands.map(c => c),
   new SlashCommandBuilder().setName("automod").setDescription("Professional AutoMod controls.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addSubcommand(s=>s.setName("setup").setDescription("Enable the professional AutoMod preset."))
@@ -185,7 +187,8 @@ async function handleInteraction(interaction,ctx){
   return false;
 }
 
-function attach(client,ctx){\n  music.attach(client);
+function attach(client,ctx){
+  music.attach(client);
   client.on("guildMemberAdd",async member=>{const w=welcome(member.guild.id);if(w.enabled&&w.channelId){const ch=member.guild.channels.cache.get(w.channelId);if(ch?.isTextBased())await ch.send({embeds:[new EmbedBuilder().setTitle("👋 Welcome!").setDescription("Welcome <@"+member.id+"> to **"+member.guild.name+"**!\\nYou are member **#"+member.guild.memberCount+"**.").setThumbnail(member.user.displayAvatarURL({size:256})).setColor(0x57F287)]}).catch(()=>{});}});
   client.on("guildMemberRemove",async member=>{const g=goodbye(member.guild.id);if(g.enabled&&g.channelId){const ch=member.guild.channels.cache.get(g.channelId);if(ch?.isTextBased())await ch.send({embeds:[new EmbedBuilder().setTitle("🚪 Goodbye").setDescription("**"+member.user.tag+"** has left the server.").setColor(0xED4245)]}).catch(()=>{});}});
   client.on("messageCreate",async message=>{
@@ -195,4 +198,5 @@ function attach(client,ctx){\n  music.attach(client);
     if(a.badwords&&/(badword1|badword2|badword3)/i.test(message.content))await message.delete().catch(()=>{});
   });
 }
-function getXPMultiplier(guildId){return xpState(guildId).multiplier||1;}\nmodule.exports={commands,handleInteraction,attach,getXPMultiplier};
+function getXPMultiplier(guildId){return xpState(guildId).multiplier||1;}
+module.exports={commands,handleInteraction,attach,getXPMultiplier};
