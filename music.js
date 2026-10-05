@@ -1,484 +1,225 @@
 const {
   SlashCommandBuilder,
-  EmbedBuilder
+  EmbedBuilder,
+  ActionRowBuilder,
+  StringSelectMenuBuilder
 } = require("discord.js");
-const {
-  joinVoiceChannel,
-  createAudioPlayer,
-  createAudioResource,
-  AudioPlayerStatus,
-  VoiceConnectionStatus,
-  NoSubscriberBehavior,
-  StreamType,
-  entersState
-} = require("@discordjs/voice");
-const { spawn } = require("node:child_process");
-const { Readable } = require("node:stream");
-const ffmpegPath = require("ffmpeg-static");
+const { LavalinkManager } = require("lavalink-client");
 
-const guilds = new Map();
+let manager = null;
+const searches = new Map();
 
-function getGuildState(guildId) {
-  if (!guilds.has(guildId)) {
-    const player = createAudioPlayer({
-      behaviors: { noSubscriber: NoSubscriberBehavior.Pause }
-    });
-    const state = {
-      queue: [],
-      current: null,
-      player,
-      connection: null,
-      channelId: null,
-      ffmpeg: null
-    };
-
-    player.on(AudioPlayerStatus.Idle, () => playNext(guildId));
-    player.on("error", error => {
-      console.error("Music player error:", error.message);
-      state.current = null;
-      if (state.ffmpeg) {
-        state.ffmpeg.kill("SIGKILL");
-        state.ffmpeg = null;
-      }
-      playNext(guildId);
-    });
-
-    guilds.set(guildId, state);
+function config() {
+  if (!process.env.LAVALINK_HOST || !process.env.LAVALINK_PASSWORD) {
+    throw new Error("Lavalink is not configured. Set LAVALINK_HOST and LAVALINK_PASSWORD.");
   }
-  return guilds.get(guildId);
+  return {
+    host: process.env.LAVALINK_HOST,
+    password: process.env.LAVALINK_PASSWORD,
+    port: Number(process.env.LAVALINK_PORT || 2333),
+    secure: String(process.env.LAVALINK_SECURE || "false").toLowerCase() === "true",
+    source: process.env.LAVALINK_SEARCH_PREFIX || ""
+  };
 }
 
-function cleanUrl(value) {
-  try {
-    const url = new URL(value);
-    if (!["http:", "https:"].includes(url.protocol)) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
+function getManager() {
+  if (!manager) throw new Error("Music system is still starting.");
+  return manager;
 }
 
-async function fetchAudio(url) {
-  const response = await fetch(url, {
-    headers: { "User-Agent": "DiscordMusicBot/1.0" },
-    redirect: "follow"
-  });
-
-  if (!response.ok || !response.body) {
-    throw new Error("The audio URL could not be opened.");
-  }
-
-  const contentType = response.headers.get("content-type") || "";
-  const looksAudio = /^audio\//i.test(contentType) ||
-    /mpeg|mp3|ogg|opus|wav|flac|aac|m4a|webm/i.test(contentType);
-
-  if (!looksAudio && !/stream/i.test(contentType)) {
-    throw new Error("The URL does not look like a direct audio stream.");
-  }
-
-  return Readable.fromWeb(response.body);
+function getNode() {
+  const node = getManager().nodeManager.leastUsedNodes("memory")[0];
+  if (!node) throw new Error("No Lavalink node is available.");
+  return node;
 }
 
-async function makeResource(item, state) {
-  const input = await fetchAudio(item.url);
-
-  const ffmpeg = spawn(ffmpegPath, [
-    "-hide_banner",
-    "-loglevel", "warning",
-    "-re",
-    "-i", "pipe:0",
-    "-vn",
-    "-f", "s16le",
-    "-ar", "48000",
-    "-ac", "2",
-    "pipe:1"
-  ], { stdio: ["pipe", "pipe", "pipe"] });
-
-  state.ffmpeg = ffmpeg;
-  input.pipe(ffmpeg.stdin);
-
-  ffmpeg.stderr.on("data", chunk => {
-    const message = chunk.toString().trim();
-    if (message) console.error("FFmpeg:", message);
-  });
-
-  ffmpeg.on("error", error => {
-    console.error("FFmpeg error:", error.message);
-  });
-
-  ffmpeg.stdin.on("error", error => {
-    if (error.code !== "EPIPE") console.error("FFmpeg stdin error:", error.message);
-  });
-
-  ffmpeg.on("close", () => {
-    if (state.ffmpeg === ffmpeg) state.ffmpeg = null;
-  });
-
-  return createAudioResource(ffmpeg.stdout, {
-    inputType: StreamType.Raw,
-    metadata: item
-  });
+function playerFor(guildId) {
+  return getManager().getPlayer(guildId);
 }
 
-async function playNext(guildId) {
-  const state = getGuildState(guildId);
-  if (!state.connection) return;
+async function ensurePlayer(interaction) {
+  const voice = interaction.member?.voice?.channel;
+  if (!voice) throw new Error("Join a voice channel first.");
 
-  const next = state.queue.shift();
-  if (!next) {
-    state.current = null;
-    return;
-  }
-
-  try {
-    state.current = next;
-    const resource = await makeResource(next, state);
-    state.player.play(resource);
-  } catch (error) {
-    console.error("Music source failed:", error.message);
-    state.current = null;
-    playNext(guildId);
-  }
-}
-
-async function connect(member, state) {
-  const channel = member.voice.channel;
-  if (!channel) throw new Error("🎧 Join a voice channel first.");
-
-  // Discord must allow the bot to Connect and Speak in the target channel.
-  const botMember = channel.guild.members.me;
-  const permissions = botMember ? channel.permissionsFor(botMember) : null;
-  if (permissions) {
-    if (!permissions.has("Connect")) {
-      throw new Error("❌ I don't have permission to connect to this voice channel.");
-    }
-    if (!permissions.has("Speak")) {
-      throw new Error("❌ I don't have permission to speak in this voice channel.");
-    }
-  }
-
-  if (state.connection && state.channelId !== channel.id) {
-    try { state.connection.destroy(); } catch {}
-    state.connection = null;
-    state.channelId = null;
-  }
-
-  if (!state.connection) {
-    const connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: member.guild.id,
-      adapterCreator: member.guild.voiceAdapterCreator,
+  let player = playerFor(interaction.guildId);
+  if (!player) {
+    player = getManager().createPlayer({
+      guildId: interaction.guildId,
+      voiceChannelId: voice.id,
+      textChannelId: interaction.channelId,
       selfDeaf: true,
       selfMute: false
     });
-
-    state.connection = connection;
-    state.channelId = channel.id;
-
-    try {
-      await entersState(connection, VoiceConnectionStatus.Ready, 15_000);
-      connection.subscribe(state.player);
-    } catch (error) {
-      try { connection.destroy(); } catch {}
-      state.connection = null;
-      state.channelId = null;
-      console.error("Music voice connection failed:", error);
-      throw new Error("❌ I couldn't join the voice channel. Check my Connect and Speak permissions.");
-    }
   } else {
-    state.connection.subscribe(state.player);
+    player.voiceChannelId = voice.id;
   }
 
-  return channel;
+  if (!player.connected) await player.connect();
+  return player;
 }
 
-function queueText(state) {
-  if (!state.current && !state.queue.length) return "Queue is empty.";
-  const lines = [];
-  if (state.current) lines.push("▶️ **Now:** " + state.current.title);
-  state.queue.slice(0, 10).forEach((item, i) => {
-    lines.push((i + 1) + ". " + item.title);
-  });
-  if (state.queue.length > 10) {
-    lines.push("…and " + (state.queue.length - 10) + " more.");
-  }
-  return lines.join("\n");
+async function searchMusic(query) {
+  const prefix = config().source;
+  if (!prefix) throw new Error("Set LAVALINK_SEARCH_PREFIX in the bot environment.");
+
+  const result = await getNode().search({ query, source: prefix }, null, false);
+  return (result?.tracks || []).slice(0, 5);
 }
 
-async function stopMusic(guildId) {
-  const state = getGuildState(guildId);
-  state.queue.length = 0;
-  state.current = null;
-  state.player.stop(true);
+function label(track) {
+  return (track?.info?.title || "Unknown track") +
+    " — " + (track?.info?.author || "Unknown artist");
+}
 
-  if (state.ffmpeg) {
-    state.ffmpeg.kill("SIGKILL");
-    state.ffmpeg = null;
-  }
-
-  if (state.connection) {
-    state.connection.destroy();
-    state.connection = null;
-    state.channelId = null;
-  }
+async function addTrack(interaction, track) {
+  const player = await ensurePlayer(interaction);
+  const wasPlaying = !!player.queue.current || player.playing;
+  await player.queue.add(track);
+  if (!player.playing && !player.paused) await player.play();
+  return { player, wasPlaying };
 }
 
 const commands = [
   new SlashCommandBuilder()
     .setName("music")
-    .setDescription("Music player and search.")
-    .addSubcommand(s => s
-      .setName("search")
-      .setDescription("Search the iTunes catalog for a song.")
-      .addStringOption(o => o
-        .setName("query")
-        .setDescription("Song, artist or album.")
-        .setRequired(true)
-        .setMaxLength(100)))
-    .addSubcommand(s => s
-      .setName("play")
-      .setDescription("Add a direct audio URL to the queue.")
-      .addStringOption(o => o
-        .setName("url")
-        .setDescription("Direct MP3/OGG/WAV/AAC/etc. audio or live stream URL.")
-        .setRequired(true)))
-    .addSubcommand(s => s
-      .setName("radio")
-      .setDescription("Play a direct internet radio/audio stream.")
-      .addStringOption(o => o
-        .setName("url")
-        .setDescription("Direct radio stream URL.")
-        .setRequired(true)))
+    .setDescription("Full-track music player.")
+    .addSubcommand(s => s.setName("search").setDescription("Search for a track.")
+      .addStringOption(o => o.setName("query").setDescription("Song or artist.").setRequired(true).setMaxLength(100)))
+    .addSubcommand(s => s.setName("play").setDescription("Play a track or audio URL.")
+      .addStringOption(o => o.setName("query").setDescription("Track name or audio URL.").setRequired(true).setMaxLength(300)))
     .addSubcommand(s => s.setName("pause").setDescription("Pause playback."))
     .addSubcommand(s => s.setName("resume").setDescription("Resume playback."))
     .addSubcommand(s => s.setName("skip").setDescription("Skip the current track."))
     .addSubcommand(s => s.setName("stop").setDescription("Stop music and clear the queue."))
-    .addSubcommand(s => s.setName("queue").setDescription("Show the music queue."))
+    .addSubcommand(s => s.setName("queue").setDescription("Show the queue."))
     .addSubcommand(s => s.setName("nowplaying").setDescription("Show the current track."))
+    .addSubcommand(s => s.setName("volume").setDescription("Set volume.")
+      .addIntegerOption(o => o.setName("percent").setDescription("1 to 150.").setRequired(true).setMinValue(1).setMaxValue(150)))
 ];
 
-async function searchDeezer(query) {
-  const url = "https://api.deezer.com/search?q=" + encodeURIComponent(query) + "&limit=8";
-  const response = await fetch(url, {
-    headers: { "User-Agent": "DiscordMusicBot/1.0" }
-  });
-  if (!response.ok) throw new Error("Deezer search is temporarily unavailable.");
-  const data = await response.json();
-
-  return (data.data || [])
-    .filter(x => x.preview && x.title && x.artist?.name)
-    .map(x => ({
-      title: x.title + " — " + x.artist.name,
-      trackName: x.title,
-      artist: x.artist.name,
-      album: x.album?.title || "Unknown album",
-      artwork: x.album?.cover_medium || x.album?.cover || null,
-      previewUrl: x.preview,
-      pageUrl: x.link || null,
-      source: "Deezer"
-    }));
-}
-
-async function searchITunes(query) {
-  const url = "https://itunes.apple.com/search?term=" +
-    encodeURIComponent(query) +
-    "&media=music&entity=song&limit=8";
-
-  const response = await fetch(url, {
-    headers: { "User-Agent": "DiscordMusicBot/1.0" }
-  });
-
-  if (!response.ok) throw new Error("iTunes search is temporarily unavailable.");
-  const data = await response.json();
-
-  return (data.results || [])
-    .filter(x => x.previewUrl && x.trackName && x.artistName)
-    .map(x => ({
-      title: x.trackName + " — " + x.artistName,
-      trackName: x.trackName,
-      artist: x.artistName,
-      album: x.collectionName || "Unknown album",
-      artwork: x.artworkUrl100 || null,
-      previewUrl: x.previewUrl,
-      pageUrl: x.trackViewUrl || null,
-      source: "Apple Music"
-    }));
-}
-
-async function searchMusic(query) {
-  // Apple preview URLs are generally more reliable for server-side playback.
-  try {
-    const itunes = await searchITunes(query);
-    if (itunes.length) return itunes;
-  } catch (error) {
-    console.error("Apple Music search failed:", error.message);
-  }
-
-  try {
-    const deezer = await searchDeezer(query);
-    if (deezer.length) return deezer;
-  } catch (error) {
-    console.error("Deezer fallback search failed:", error.message);
-  }
-
-  return [];
-}
-
 async function handleInteraction(interaction) {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== "music") {
-    return false;
-  }
+  if (!interaction.isChatInputCommand() || interaction.commandName !== "music") return false;
 
-  const member = interaction.member;
-  const voice = member?.voice?.channel;
-  const state = getGuildState(interaction.guild.id);
   const sub = interaction.options.getSubcommand();
 
   if (sub === "search") {
     const query = interaction.options.getString("query", true);
-
     await interaction.deferReply();
 
     try {
-      const results = await searchMusic(query);
-
-      if (!results.length) {
-        await interaction.editReply("❌ No results found for **" + query + "**.");
+      const tracks = await searchMusic(query);
+      if (!tracks.length) {
+        await interaction.editReply("No tracks found.");
         return true;
       }
 
-      const lines = results.map((x, i) =>
-        "**" + (i + 1) + ".** " + x.title +
-        "\\n💿 " + x.album
-      );
+      searches.set(interaction.id, tracks);
 
-      const row = new (require("discord.js").ActionRowBuilder)().addComponents(
-        new (require("discord.js").StringSelectMenuBuilder)()
-          .setCustomId("music_result_select")
-          .setPlaceholder("🎵 Select a song")
-          .addOptions(results.map((x, i) => ({
-            label: x.trackName ? x.trackName.slice(0, 100) : x.title.slice(0, 100),
-            description: x.artist.slice(0, 100),
-            value: String(i)
-          })))
-      );
+      const menu = new StringSelectMenuBuilder()
+        .setCustomId("music_result:" + interaction.id)
+        .setPlaceholder("Select a full track")
+        .addOptions(tracks.map((track, index) => ({
+          label: (track.info.title || "Unknown").slice(0, 100),
+          description: (track.info.author || "Unknown artist").slice(0, 100),
+          value: String(index)
+        })));
 
-      state.searchResults = results;
+      const text = tracks.map((track, index) => {
+        const ms = Number(track.info.length || 0);
+        const duration = Math.floor(ms / 60000) + ":" +
+          Math.floor((ms % 60000) / 1000).toString().padStart(2, "0");
+        return "**" + (index + 1) + ".** " + label(track) + " • " + duration;
+      }).join("\n");
 
       await interaction.editReply({
         embeds: [
           new EmbedBuilder()
-            .setTitle("🔎 Music Search")
-            .setDescription(lines.join("\\n\\n"))
+            .setTitle("Music Search")
+            .setDescription(text)
             .setColor(0x5865F2)
-            .setFooter({ text: "30-second preview • Apple Music / Deezer" })
+            .setFooter({ text: "Full-track playback through Lavalink" })
         ],
-        components: [row]
+        components: [new ActionRowBuilder().addComponents(menu)]
       });
     } catch (error) {
-      await interaction.editReply("❌ Search failed: " + error.message);
+      await interaction.editReply("Search failed: " + error.message);
     }
-
     return true;
   }
 
-  if (["play", "radio"].includes(sub)) {
-    if (!voice) {
-      await interaction.reply({
-        content: "🎧 Join a voice channel first.",
-        ephemeral: true
-      });
-      return true;
-    }
-
-    const url = cleanUrl(interaction.options.getString("url", true));
-    if (!url) {
-      await interaction.reply({
-        content: "❌ Invalid URL.",
-        ephemeral: true
-      });
-      return true;
-    }
+  if (sub === "play") {
+    await interaction.deferReply();
 
     try {
-      // Voice connection / first audio fetch can take longer than Discord's
-      // 3-second interaction window, so acknowledge the interaction first.
-      await interaction.deferReply();
+      const query = interaction.options.getString("query", true);
+      let track;
 
-      await connect(member, state);
+      if (/^https?:\/\//i.test(query)) {
+        const result = await getNode().search({ query }, null, false);
+        track = result?.tracks?.[0];
+      } else {
+        track = (await searchMusic(query))[0];
+      }
 
-      const item = {
-        url,
-        title: sub === "radio"
-          ? "📻 Internet Radio"
-          : "🎵 Direct Audio Stream",
-        requestedBy: interaction.user.id
-      };
+      if (!track) throw new Error("No playable track was found.");
 
-      const wasIdle = !state.current;
-      state.queue.push(item);
-
-      if (wasIdle) await playNext(interaction.guild.id);
-
+      const { wasPlaying } = await addTrack(interaction, track);
       await interaction.editReply({
         embeds: [
           new EmbedBuilder()
-            .setTitle(sub === "radio" ? "📻 Radio Added" : "🎵 Track Added")
-            .setDescription(
-              "**" + item.title + "**\n" +
-              "Position: **" + (wasIdle ? "Playing now" : state.queue.length) + "**"
-            )
+            .setTitle(wasPlaying ? "Added to Queue" : "Now Playing")
+            .setDescription("**" + label(track) + "**")
             .setColor(0x5865F2)
         ]
       });
     } catch (error) {
-      const content = "❌ Playback failed: " + error.message;
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({ content }).catch(() => {});
-      } else {
-        await interaction.reply({ content, ephemeral: true }).catch(() => {});
-      }
+      await interaction.editReply("Playback failed: " + error.message);
     }
-
     return true;
   }
 
+  const player = playerFor(interaction.guildId);
+
   if (sub === "pause") {
-    const ok = state.player.pause();
-    return interaction.reply({
-      content: ok ? "⏸️ Music paused." : "❌ Nothing is currently playing."
-    }).then(() => true);
+    if (!player?.playing) return interaction.reply({ content: "Nothing is playing.", ephemeral: true }).then(() => true);
+    await player.pause(true);
+    await interaction.reply("Music paused.");
+    return true;
   }
 
   if (sub === "resume") {
-    const ok = state.player.unpause();
-    return interaction.reply({
-      content: ok ? "▶️ Music resumed." : "❌ Nothing to resume."
-    }).then(() => true);
+    if (!player?.paused) return interaction.reply({ content: "Nothing is paused.", ephemeral: true }).then(() => true);
+    await player.pause(false);
+    await interaction.reply("Music resumed.");
+    return true;
   }
 
   if (sub === "skip") {
-    if (!state.current) {
-      await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
-      return true;
-    }
-    state.player.stop(true);
-    await interaction.reply({ content: "⏭️ Skipped." });
+    if (!player?.playing) return interaction.reply({ content: "Nothing is playing.", ephemeral: true }).then(() => true);
+    await player.skip();
+    await interaction.reply("Skipped.");
     return true;
   }
 
   if (sub === "stop") {
-    await stopMusic(interaction.guild.id);
-    await interaction.reply({ content: "⏹️ Music stopped and the queue was cleared." });
+    if (!player) return interaction.reply({ content: "Music is not active.", ephemeral: true }).then(() => true);
+    await player.queue.clear();
+    await player.destroy("Stopped by user.");
+    await interaction.reply("Music stopped and the queue was cleared.");
     return true;
   }
 
   if (sub === "queue") {
+    const lines = [];
+    if (player?.queue?.current) lines.push("Now: **" + label(player.queue.current) + "**");
+    for (const [i, track] of (player?.queue?.tracks || []).slice(0, 10).entries()) {
+      lines.push((i + 1) + ". " + label(track));
+    }
     await interaction.reply({
       embeds: [
         new EmbedBuilder()
-          .setTitle("🎶 Music Queue")
-          .setDescription(queueText(state))
+          .setTitle("Music Queue")
+          .setDescription(lines.length ? lines.join("\n") : "Queue is empty.")
           .setColor(0x5865F2)
       ]
     });
@@ -489,11 +230,19 @@ async function handleInteraction(interaction) {
     await interaction.reply({
       embeds: [
         new EmbedBuilder()
-          .setTitle("🎵 Now Playing")
-          .setDescription(state.current ? "**" + state.current.title + "**" : "Nothing is playing.")
+          .setTitle("Now Playing")
+          .setDescription(player?.queue?.current ? "**" + label(player.queue.current) + "**" : "Nothing is playing.")
           .setColor(0x5865F2)
       ]
     });
+    return true;
+  }
+
+  if (sub === "volume") {
+    if (!player) return interaction.reply({ content: "Music is not active.", ephemeral: true }).then(() => true);
+    const percent = interaction.options.getInteger("percent", true);
+    await player.setVolume(percent);
+    await interaction.reply("Volume set to **" + percent + "%**.");
     return true;
   }
 
@@ -501,66 +250,91 @@ async function handleInteraction(interaction) {
 }
 
 function attach(client) {
+  try {
+    const c = config();
+
+    manager = new LavalinkManager({
+      nodes: [{
+        id: "main",
+        host: c.host,
+        port: c.port,
+        authorization: c.password,
+        secure: c.secure
+      }],
+      sendToShard: (guildId, payload) => {
+        const guild = client.guilds.cache.get(guildId);
+        if (guild?.shard) guild.shard.send(payload);
+      },
+      autoSkip: true,
+      client: {
+        id: process.env.CLIENT_ID,
+        username: "MusicBot"
+      }
+    });
+
+    client.on("raw", packet => {
+      try { manager.sendRawData(packet); }
+      catch (error) { console.error("Lavalink packet error:", error.message); }
+    });
+
+    client.once("ready", async () => {
+      try {
+        await manager.init({ ...client.user });
+        console.log("Lavalink music system connected.");
+      } catch (error) {
+        console.error("Lavalink initialization failed:", error);
+      }
+    });
+
+    manager.on("nodeConnect", node => console.log("Lavalink node connected:", node.id || "main"));
+    manager.on("nodeError", (node, error) => console.error("Lavalink node error:", error?.message || error));
+    manager.on("trackStart", (player, track) => console.log("Track started:", track?.info?.title || "Unknown"));
+    manager.on("trackError", (player, track, error) => console.error("Track error:", error?.message || error));
+  } catch (error) {
+    console.error("Music configuration error:", error.message);
+  }
+
   client.on("interactionCreate", async interaction => {
-    if (!interaction.isStringSelectMenu() || interaction.customId !== "music_result_select") return;
+    if (!interaction.isStringSelectMenu() || !interaction.customId.startsWith("music_result:")) return;
 
-    const state = getGuildState(interaction.guild.id);
-    const index = Number(interaction.values[0]);
-    const item = state.searchResults?.[index];
+    const results = searches.get(interaction.customId.slice("music_result:".length));
+    const track = results?.[Number(interaction.values[0])];
 
-    if (!item) {
-      return interaction.reply({ content: "❌ This result is no longer available. Search again.", ephemeral: true });
+    if (!track) {
+      await interaction.reply({ content: "This search has expired. Search again.", ephemeral: true });
+      return;
     }
 
-    const member = interaction.member;
-    if (!member?.voice?.channel) {
-      return interaction.reply({ content: "🎧 Join a voice channel first.", ephemeral: true });
-    }
+    await interaction.deferUpdate();
 
     try {
-      // A component interaction also has a short acknowledgement window.
-      await interaction.deferUpdate();
-
-      await connect(member, state);
-
-      const wasIdle = !state.current;
-      state.queue.push({
-        url: item.previewUrl,
-        title: item.title + " (Preview • " + (item.source || "Music") + ")",
-        requestedBy: interaction.user.id,
-        artwork: item.artwork,
-        pageUrl: item.pageUrl
-      });
-
-      if (wasIdle) await playNext(interaction.guild.id);
-
-      await interaction.editReply({
-        content: "🎵 **" + item.title + "** was added to the music player.",
-        embeds: [],
+      const { wasPlaying } = await addTrack(interaction, track);
+      await interaction.message.edit({
+        content: "",
+        embeds: [
+          new EmbedBuilder()
+            .setTitle(wasPlaying ? "Added to Queue" : "Now Playing")
+            .setDescription("**" + label(track) + "**")
+            .setColor(0x5865F2)
+        ],
         components: []
       });
     } catch (error) {
-      const content = "❌ Playback failed: " + error.message;
-      if (interaction.deferred || interaction.replied) {
-        await interaction.editReply({ content, components: [] }).catch(() => {});
-      } else {
-        await interaction.reply({ content, ephemeral: true }).catch(() => {});
-      }
+      await interaction.message.edit({ content: "Playback failed: " + error.message, components: [] }).catch(() => {});
     }
   });
 
   client.on("voiceStateUpdate", async (oldState, newState) => {
-    const state = guilds.get(newState.guild.id);
-    if (!state?.connection || state.channelId !== oldState.channelId) return;
+    const player = manager?.getPlayer(newState.guild.id);
+    if (!player?.voiceChannelId) return;
 
-    const channel = newState.guild.channels.cache.get(state.channelId);
+    const channel = newState.guild.channels.cache.get(player.voiceChannelId);
     if (!channel) return;
 
-    const humans = channel.members.filter(m => !m.user.bot);
-    if (humans.size === 0) {
-      await stopMusic(newState.guild.id);
+    if (!channel.members.filter(member => !member.user.bot).size) {
+      await player.destroy("Voice channel became empty.").catch(() => {});
     }
   });
 }
 
-module.exports = { commands, handleInteraction, attach, stopMusic };
+module.exports = { commands, handleInteraction, attach };
