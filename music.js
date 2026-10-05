@@ -133,17 +133,17 @@ async function playNext(guildId) {
 
 async function connect(member, state) {
   const channel = member.voice.channel;
-  if (!channel) throw new Error("🎧 اول وارد یک Voice Channel شو.");
+  if (!channel) throw new Error("🎧 Join a voice channel first.");
 
   // Discord must allow the bot to Connect and Speak in the target channel.
   const botMember = channel.guild.members.me;
   const permissions = botMember ? channel.permissionsFor(botMember) : null;
   if (permissions) {
     if (!permissions.has("Connect")) {
-      throw new Error("❌ بات دسترسی Connect به این Voice Channel ندارد.");
+      throw new Error("❌ I don't have permission to connect to this voice channel.");
     }
     if (!permissions.has("Speak")) {
-      throw new Error("❌ بات دسترسی Speak به این Voice Channel ندارد.");
+      throw new Error("❌ I don't have permission to speak in this voice channel.");
     }
   }
 
@@ -173,7 +173,7 @@ async function connect(member, state) {
       state.connection = null;
       state.channelId = null;
       console.error("Music voice connection failed:", error);
-      throw new Error("❌ نتونستم وارد Voice بشم. دسترسی Connect/Speak بات رو بررسی کن.");
+      throw new Error("❌ I couldn't join the voice channel. Check my Connect and Speak permissions.");
     }
   } else {
     state.connection.subscribe(state.player);
@@ -332,7 +332,7 @@ async function handleInteraction(interaction) {
       const results = await searchMusic(query);
 
       if (!results.length) {
-        await interaction.editReply("❌ برای **" + query + "** چیزی پیدا نکردم.");
+        await interaction.editReply("❌ No results found for **" + query + "**.");
         return true;
       }
 
@@ -344,7 +344,7 @@ async function handleInteraction(interaction) {
       const row = new (require("discord.js").ActionRowBuilder)().addComponents(
         new (require("discord.js").StringSelectMenuBuilder)()
           .setCustomId("music_result_select")
-          .setPlaceholder("🎵 یه آهنگ رو انتخاب کن")
+          .setPlaceholder("🎵 Select a song")
           .addOptions(results.map((x, i) => ({
             label: x.trackName ? x.trackName.slice(0, 100) : x.title.slice(0, 100),
             description: x.artist.slice(0, 100),
@@ -365,7 +365,7 @@ async function handleInteraction(interaction) {
         components: [row]
       });
     } catch (error) {
-      await interaction.editReply("❌ جست‌وجو انجام نشد: " + error.message);
+      await interaction.editReply("❌ Search failed: " + error.message);
     }
 
     return true;
@@ -374,7 +374,7 @@ async function handleInteraction(interaction) {
   if (["play", "radio"].includes(sub)) {
     if (!voice) {
       await interaction.reply({
-        content: "🎧 اول وارد یه Voice Channel شو.",
+        content: "🎧 Join a voice channel first.",
         ephemeral: true
       });
       return true;
@@ -383,7 +383,7 @@ async function handleInteraction(interaction) {
     const url = cleanUrl(interaction.options.getString("url", true));
     if (!url) {
       await interaction.reply({
-        content: "❌ URL معتبر نیست.",
+        content: "❌ Invalid URL.",
         ephemeral: true
       });
       return true;
@@ -421,7 +421,7 @@ async function handleInteraction(interaction) {
         ]
       });
     } catch (error) {
-      const content = "❌ پخش نشد: " + error.message;
+      const content = "❌ Playback failed: " + error.message;
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply({ content }).catch(() => {});
       } else {
@@ -435,20 +435,20 @@ async function handleInteraction(interaction) {
   if (sub === "pause") {
     const ok = state.player.pause();
     return interaction.reply({
-      content: ok ? "⏸️ موزیک Pause شد." : "❌ چیزی در حال پخش نیست."
+      content: ok ? "⏸️ Music paused." : "❌ Nothing is currently playing."
     }).then(() => true);
   }
 
   if (sub === "resume") {
     const ok = state.player.unpause();
     return interaction.reply({
-      content: ok ? "▶️ موزیک ادامه پیدا کرد." : "❌ چیزی برای Resume نیست."
+      content: ok ? "▶️ Music resumed." : "❌ Nothing to resume."
     }).then(() => true);
   }
 
   if (sub === "skip") {
     if (!state.current) {
-      await interaction.reply({ content: "❌ چیزی در حال پخش نیست.", ephemeral: true });
+      await interaction.reply({ content: "❌ Nothing is currently playing.", ephemeral: true });
       return true;
     }
     state.player.stop(true);
@@ -458,7 +458,7 @@ async function handleInteraction(interaction) {
 
   if (sub === "stop") {
     await stopMusic(interaction.guild.id);
-    await interaction.reply({ content: "⏹️ موزیک متوقف شد و Queue پاک شد." });
+    await interaction.reply({ content: "⏹️ Music stopped and the queue was cleared." });
     return true;
   }
 
@@ -498,12 +498,12 @@ function attach(client) {
     const item = state.searchResults?.[index];
 
     if (!item) {
-      return interaction.reply({ content: "❌ این نتیجه دیگه در دسترس نیست. دوباره Search کن.", ephemeral: true });
+      return interaction.reply({ content: "❌ This result is no longer available. Search again.", ephemeral: true });
     }
 
     const member = interaction.member;
     if (!member?.voice?.channel) {
-      return interaction.reply({ content: "🎧 اول وارد یه Voice Channel شو.", ephemeral: true });
+      return interaction.reply({ content: "🎧 Join a voice channel first.", ephemeral: true });
     }
 
     try {
@@ -524,12 +524,12 @@ function attach(client) {
       if (wasIdle) await playNext(interaction.guild.id);
 
       await interaction.editReply({
-        content: "🎵 **" + item.title + "** به موزیک پلیر اضافه شد.",
+        content: "🎵 **" + item.title + "** was added to the music player.",
         embeds: [],
         components: []
       });
     } catch (error) {
-      const content = "❌ پخش نشد: " + error.message;
+      const content = "❌ Playback failed: " + error.message;
       if (interaction.deferred || interaction.replied) {
         await interaction.editReply({ content, components: [] }).catch(() => {});
       } else {
