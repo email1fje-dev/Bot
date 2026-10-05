@@ -97,6 +97,7 @@ async function finishGiveaway(client,key){
 async function handleInteraction(interaction,ctx){
   if(!interaction.isChatInputCommand()||!interaction.guild)return false;
   const guild=interaction.guild, name=interaction.commandName;
+  if(name==="music") return music.handleInteraction(interaction);
 
   if(name==="automod"){
     const a=auto(guild.id), sub=interaction.options.getSubcommand();
