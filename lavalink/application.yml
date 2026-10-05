@@ -1,0 +1,22 @@
+server:
+  port: 2333
+  address: 0.0.0.0
+
+plugins:
+  - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+    snapshot: false
+
+lavalink:
+  server:
+    password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
+    sources:
+      youtube: false
+      soundcloud: true
+      http: true
+      local: false
+    soundcloudFilterOutPreviewTracks: true
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO
