@@ -779,6 +779,10 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.customId === "ticket_claim") {
       if (!isAdmin(interaction.member)) return interaction.reply({content:"❌ Only staff with Administrator permission can claim tickets.",ephemeral:true});
+      const topic=interaction.channel.topic||"";
+      const ownerId=topic.split("ticket-owner:")[1]?.split(" ")[0]||"";
+      await interaction.channel.setTopic(topic.split(" | claimed-by:")[0]+" | claimed-by:"+interaction.user.id).catch(()=>{});
+      await interaction.channel.permissionOverwrites.edit(interaction.user.id,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true});
       await interaction.reply({content:`🛡️ Ticket claimed by <@${interaction.user.id}>.`});
       await modLog(guild,`🛡️ Ticket <#${interaction.channel.id}> claimed by <@${interaction.user.id}>.`);
       return;
@@ -792,6 +796,7 @@ client.on("interactionCreate", async interaction => {
       }
 
       await interaction.reply({content:"🔒 Ticket closing in 5 seconds..."});
+      await sendTicketTranscript(interaction.channel,guild,interaction.user);
       await modLog(guild,`🔒 Ticket <#${interaction.channel.id}> closed by <@${interaction.user.id}>.`);
       setTimeout(() => interaction.channel?.delete("Ticket closed").catch(() => {}),5000);
       return;
