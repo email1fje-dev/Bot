@@ -195,7 +195,15 @@ async function stopMusic(guildId) {
 const commands = [
   new SlashCommandBuilder()
     .setName("music")
-    .setDescription("Play authorized direct audio streams in your voice channel.")
+    .setDescription("Music player and search.")
+    .addSubcommand(s => s
+      .setName("search")
+      .setDescription("Search the iTunes catalog for a song.")
+      .addStringOption(o => o
+        .setName("query")
+        .setDescription("Song, artist or album.")
+        .setRequired(true)
+        .setMaxLength(100)))
     .addSubcommand(s => s
       .setName("play")
       .setDescription("Add a direct audio URL to the queue.")
@@ -218,6 +226,30 @@ const commands = [
     .addSubcommand(s => s.setName("nowplaying").setDescription("Show the current track."))
 ];
 
+async function searchITunes(query) {
+  const url = "https://itunes.apple.com/search?term=" +
+    encodeURIComponent(query) +
+    "&media=music&entity=song&limit=8";
+
+  const response = await fetch(url, {
+    headers: { "User-Agent": "DiscordMusicBot/1.0" }
+  });
+
+  if (!response.ok) throw new Error("Music search is temporarily unavailable.");
+  const data = await response.json();
+
+  return (data.results || [])
+    .filter(x => x.previewUrl && x.trackName && x.artistName)
+    .map(x => ({
+      title: x.trackName + " — " + x.artistName,
+      artist: x.artistName,
+      album: x.collectionName || "Unknown album",
+      artwork: x.artworkUrl100 || null,
+      previewUrl: x.previewUrl,
+      pageUrl: x.trackViewUrl || null
+    }));
+}
+
 async function handleInteraction(interaction) {
   if (!interaction.isChatInputCommand() || interaction.commandName !== "music") {
     return false;
@@ -227,6 +259,54 @@ async function handleInteraction(interaction) {
   const voice = member?.voice?.channel;
   const state = getGuildState(interaction.guild.id);
   const sub = interaction.options.getSubcommand();
+
+  if (sub === "search") {
+    const query = interaction.options.getString("query", true);
+
+    await interaction.deferReply();
+
+    try {
+      const results = await searchITunes(query);
+
+      if (!results.length) {
+        await interaction.editReply("❌ برای **" + query + "** چیزی پیدا نکردم.");
+        return true;
+      }
+
+      const lines = results.map((x, i) =>
+        "**" + (i + 1) + ".** " + x.title +
+        "\\n💿 " + x.album
+      );
+
+      const row = new (require("discord.js").ActionRowBuilder)().addComponents(
+        new (require("discord.js").StringSelectMenuBuilder)()
+          .setCustomId("music_result_select")
+          .setPlaceholder("🎵 یه آهنگ رو انتخاب کن")
+          .addOptions(results.map((x, i) => ({
+            label: x.trackName ? x.trackName.slice(0, 100) : x.title.slice(0, 100),
+            description: x.artist.slice(0, 100),
+            value: String(i)
+          })))
+      );
+
+      state.searchResults = results;
+
+      await interaction.editReply({
+        embeds: [
+          new EmbedBuilder()
+            .setTitle("🔎 Music Search")
+            .setDescription(lines.join("\\n\\n"))
+            .setColor(0x5865F2)
+            .setFooter({ text: "Preview from the iTunes catalog" })
+        ],
+        components: [row]
+      });
+    } catch (error) {
+      await interaction.editReply("❌ جست‌وجو انجام نشد: " + error.message);
+    }
+
+    return true;
+  }
 
   if (["play", "radio"].includes(sub)) {
     if (!voice) {
@@ -341,6 +421,49 @@ async function handleInteraction(interaction) {
 }
 
 function attach(client) {
+  client.on("interactionCreate", async interaction => {
+    if (!interaction.isStringSelectMenu() || interaction.customId !== "music_result_select") return;
+
+    const state = getGuildState(interaction.guild.id);
+    const index = Number(interaction.values[0]);
+    const item = state.searchResults?.[index];
+
+    if (!item) {
+      return interaction.reply({ content: "❌ این نتیجه دیگه در دسترس نیست. دوباره Search کن.", ephemeral: true });
+    }
+
+    const member = interaction.member;
+    if (!member?.voice?.channel) {
+      return interaction.reply({ content: "🎧 اول وارد یه Voice Channel شو.", ephemeral: true });
+    }
+
+    try {
+      await connect(member, state);
+
+      const wasIdle = !state.current;
+      state.queue.push({
+        url: item.previewUrl,
+        title: item.title + " (Preview)",
+        requestedBy: interaction.user.id,
+        artwork: item.artwork,
+        pageUrl: item.pageUrl
+      });
+
+      if (wasIdle) await playNext(interaction.guild.id);
+
+      await interaction.update({
+        content: "🎵 **" + item.title + "** به موزیک پلیر اضافه شد.",
+        embeds: [],
+        components: []
+      });
+    } catch (error) {
+      await interaction.reply({
+        content: "❌ پخش نشد: " + error.message,
+        ephemeral: true
+      });
+    }
+  });
+
   client.on("voiceStateUpdate", async (oldState, newState) => {
     const state = guilds.get(newState.guild.id);
     if (!state?.connection || state.channelId !== oldState.channelId) return;
