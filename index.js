@@ -487,6 +487,7 @@ async function cacheGuildInvites(guild) {
 }
 
 const commands = [
+  ...extraFeatures.commands.map(c => c),
   new SlashCommandBuilder()
     .setName("hidem")
     .setDescription("Send a message as the bot to a selected channel.")
@@ -705,6 +706,10 @@ client.on("inviteDelete", invite => {
 });
 
 client.on("interactionCreate", async interaction => {
+  if (interaction.isChatInputCommand()) {
+    const handled = await extraFeatures.handleInteraction(interaction, {client, getLevelInfo, saveLevelData, applyLevelRole, statBucket});
+    if (handled) return;
+  }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
     const guild = interaction.guild;
     if (interaction.isStringSelectMenu() && interaction.customId === "role_select") {
@@ -1585,5 +1590,6 @@ client.on("threadDelete", async thread => {
     .setDescription("Thread **"+thread.name+"** was deleted.").setColor(0xED4245).setTimestamp());
 });
 
+extraFeatures.attach(client, {client, statBucket, getLevelInfo, saveLevelData, applyLevelRole});
 client.on("error", console.error);
 client.login(TOKEN);
