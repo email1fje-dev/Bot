@@ -1,4 +1,9 @@
-const { createClient } = require("@supabase/supabase-js");
+c
+  const achievementSet=getAchievements(message.guild.id,message.author.id);
+  if(!achievementSet.has("first-message")) await unlockAchievement(message.guild,message.author.id,"first-message",message.channel);
+  if(statBucket(message.guild.id).messages>=100 && !achievementSet.has("messages-100")) await unlockAchievement(message.guild,message.author.id,"messages-100",message.channel);
+
+onst { createClient } = require("@supabase/supabase-js");
 
 const {
   Client,
@@ -214,6 +219,56 @@ async function addModCase(guildId,action,targetUserId,moderatorUserId,reason){
   if(error){console.error("Mod case save failed:",error.message);return null;} return data?.case_id||null;
 }
 const SHOP_ITEMS=[{id:"coffee",name:"☕ Coffee",price:100},{id:"cookie",name:"🍪 Cookie",price:250},{id:"gem",name:"💎 Gem",price:1000}];
+const achievements = new Map();
+const giveaways = new Map();
+
+const ACHIEVEMENTS = [
+  {id:"first-message",name:"First Message",emoji:"💬",desc:"Send your first message."},
+  {id:"messages-100",name:"Chatterbox",emoji:"🗣️",desc:"Send 100 messages."},
+  {id:"level-10",name:"Arcane",emoji:"🔮",desc:"Reach level 10."},
+  {id:"level-50",name:"Celestial",emoji:"☀️",desc:"Reach level 50."},
+  {id:"first-ticket",name:"Ticket Starter",emoji:"🎫",desc:"Create your first ticket."},
+  {id:"first-invite",name:"Welcomer",emoji:"📨",desc:"Invite your first member."}
+];
+
+function getAchievements(guildId,userId){
+  const key=guildId+":"+userId;
+  if(!achievements.has(key)) achievements.set(key,new Set());
+  return achievements.get(key);
+}
+
+async function unlockAchievement(guild,userId,id,channel){
+  const a=ACHIEVEMENTS.find(x=>x.id===id); if(!a)return;
+  const set=getAchievements(guild.id,userId);
+  if(set.has(id))return;
+  set.add(id);
+  if(channel?.isTextBased()) await channel.send({content:"🏆 <@"+userId+"> unlocked **"+a.emoji+" "+a.name+"** — "+a.desc}).catch(()=>{});
+}
+
+function parseColor(value){
+  if(!value)return 0x5865F2;
+  const v=value.replace("#","");
+  return /^[0-9a-fA-F]{6}$/.test(v) ? parseInt(v,16) : 0x5865F2;
+}
+
+function ticketChannel(channel){
+  return channel?.type===ChannelType.GuildText && (channel.topic||"").startsWith("ticket-owner:");
+}
+
+async function sendTicketTranscript(channel,guild,closedBy){
+  try{
+    const messages=await channel.messages.fetch({limit:100});
+    const lines=[`Ticket: #${channel.name}`,`Closed by: ${closedBy.tag}`,`Closed at: ${new Date().toISOString()}`,`---`];
+    for(const m of [...messages.values()].reverse()){
+      lines.push(`[${m.createdAt.toISOString()}] ${m.author.tag}: ${(m.content||"[embed/attachment]").replace(/\\n/g," ")}`);
+    }
+    const text=lines.join("\n");
+    const logId=getSettings(guild.id).logChannels?.mod||getSettings(guild.id).logs;
+    const log=guild.channels.cache.get(logId);
+    if(log?.isTextBased()) await log.send({content:"📄 **Ticket Transcript** — "+channel.name+"\n\`\`\`\n"+text.slice(0,1850)+"\n\`\`\`"}).catch(()=>{});
+  }catch(e){console.error("Transcript failed:",e.message);}
+}
+
 function statBucket(guildId){if(!serverStats.has(guildId))serverStats.set(guildId,{messages:0,joins:0,leaves:0});return serverStats.get(guildId);}
 function levelFromXP(xp) {
   return Math.max(1, Math.floor(Math.sqrt(xp / 100)) + 1);
@@ -536,7 +591,88 @@ const commands = [
   new SlashCommandBuilder().setName("dice").setDescription("Roll a virtual six-sided die."),
   new SlashCommandBuilder().setName("serverinfo").setDescription("Show server information."),
   new SlashCommandBuilder().setName("userinfo").setDescription("Show information about a member.")
-    .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true))
+    .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true)),
+  new SlashCommandBuilder().setName("modlog").setDescription("Show a member's moderation summary.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true)),
+  new SlashCommandBuilder().setName("history").setDescription("Show recent moderation cases.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true)),
+  new SlashCommandBuilder().setName("unwarn").setDescription("Remove a warning from a member.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true)),
+  new SlashCommandBuilder().setName("unban").setDescription("Unban a user.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addStringOption(o=>o.setName("user_id").setDescription("User ID.").setRequired(true)),
+  new SlashCommandBuilder().setName("slowmode").setDescription("Set channel slowmode.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addIntegerOption(o=>o.setName("seconds").setDescription("0-21600 seconds.").setMinValue(0).setMaxValue(21600).setRequired(true)),
+  new SlashCommandBuilder().setName("nick").setDescription("Change a member nickname.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true))
+    .addStringOption(o=>o.setName("nickname").setDescription("New nickname; leave empty to reset.").setMaxLength(32)),
+  new SlashCommandBuilder().setName("softban").setDescription("Ban and immediately unban a member.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true))
+    .addStringOption(o=>o.setName("reason").setDescription("Reason.")),
+  new SlashCommandBuilder().setName("unmute").setDescription("Remove a timeout.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true)),
+  new SlashCommandBuilder().setName("ticket-add").setDescription("Add a member to the current ticket.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true)),
+  new SlashCommandBuilder().setName("ticket-remove").setDescription("Remove a member from the current ticket.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true)),
+  new SlashCommandBuilder().setName("ticket-rename").setDescription("Rename the current ticket.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addStringOption(o=>o.setName("name").setDescription("New ticket name.").setRequired(true).setMaxLength(90)),
+  new SlashCommandBuilder().setName("achievements").setDescription("Show your unlocked achievements.")
+    .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(false)),
+  new SlashCommandBuilder().setName("giveaway").setDescription("Create a simple free-entry giveaway.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addStringOption(o=>o.setName("prize").setDescription("Prize description.").setRequired(true).setMaxLength(200))
+    .addIntegerOption(o=>o.setName("minutes").setDescription("Duration in minutes.").setMinValue(1).setMaxValue(10080).setRequired(true))
+    .addIntegerOption(o=>o.setName("winners").setDescription("Number of winners.").setMinValue(1).setMaxValue(20).setRequired(true)),
+  new SlashCommandBuilder().setName("invite-leaderboard").setDescription("Show the server invite leaderboard."),
+  new SlashCommandBuilder().setName("work").setDescription("Earn coins from a cooldown-based job."),
+  new SlashCommandBuilder().setName("richest").setDescription("Show the richest members."),
+  new SlashCommandBuilder().setName("economy").setDescription("Show your economy profile."),
+  new SlashCommandBuilder().setName("role").setDescription("Manage server roles.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addSubcommand(sub=>sub.setName("create").setDescription("Create a role.")
+      .addStringOption(o=>o.setName("name").setDescription("Role name.").setRequired(true))
+      .addStringOption(o=>o.setName("color").setDescription("Hex color, e.g. #5865F2.")))
+    .addSubcommand(sub=>sub.setName("delete").setDescription("Delete a role.")
+      .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true)))
+    .addSubcommand(sub=>sub.setName("rename").setDescription("Rename a role.")
+      .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true))
+      .addStringOption(o=>o.setName("name").setDescription("New name.").setRequired(true)))
+    .addSubcommand(sub=>sub.setName("color").setDescription("Change role color.")
+      .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true))
+      .addStringOption(o=>o.setName("color").setDescription("Hex color.").setRequired(true)))
+    .addSubcommand(sub=>sub.setName("give").setDescription("Give a role to a member.")
+      .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true))
+      .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true)))
+    .addSubcommand(sub=>sub.setName("remove").setDescription("Remove a role from a member.")
+      .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true))
+      .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true))),
+  new SlashCommandBuilder().setName("rolepanel").setDescription("Create a self-role selection panel.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
+    .addRoleOption(o=>o.setName("role1").setDescription("Role 1.").setRequired(true))
+    .addRoleOption(o=>o.setName("role2").setDescription("Role 2."))
+    .addRoleOption(o=>o.setName("role3").setDescription("Role 3."))
+    .addRoleOption(o=>o.setName("role4").setDescription("Role 4."))
+    .addRoleOption(o=>o.setName("role5").setDescription("Role 5.")),
+  new SlashCommandBuilder().setName("poll").setDescription("Create a simple poll.")
+    .addStringOption(o=>o.setName("question").setDescription("Question.").setRequired(true).setMaxLength(1000)),
+  new SlashCommandBuilder().setName("8ball").setDescription("Ask the magic 8-ball.")
+    .addStringOption(o=>o.setName("question").setDescription("Question.").setRequired(true).setMaxLength(500)),
+  new SlashCommandBuilder().setName("ship").setDescription("Show a friendship score.")
+    .addUserOption(o=>o.setName("user").setDescription("Other member.").setRequired(true)),
+  new SlashCommandBuilder().setName("membercount").setDescription("Show the member count."),
+  new SlashCommandBuilder().setName("ping").setDescription("Show bot latency."),
+  new SlashCommandBuilder().setName("dashboard").setDescription("Show the server dashboard.")
 ];
 
 async function registerCommands() {
@@ -571,6 +707,26 @@ client.on("inviteDelete", invite => {
 client.on("interactionCreate", async interaction => {
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
     const guild = interaction.guild;
+    if (interaction.isStringSelectMenu() && interaction.customId === "role_select") {
+      const member=await guild.members.fetch(interaction.user.id);
+      for(const roleId of interaction.values){
+        const role=guild.roles.cache.get(roleId);
+        if(role && role.position<guild.members.me.roles.highest.position){
+          if(member.roles.cache.has(roleId)) await member.roles.remove(roleId,"Self role toggle");
+          else await member.roles.add(roleId,"Self role toggle");
+        }
+      }
+      return interaction.reply({content:"🎭 Your roles have been updated.",ephemeral:true});
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("giveaway_enter:")) {
+      const id=interaction.customId.split(":")[1],g=giveaways.get(id);
+      if(!g || g.ends<=Date.now()) return interaction.reply({content:"❌ This giveaway has ended.",ephemeral:true});
+      if(g.entries.has(interaction.user.id)) return interaction.reply({content:"ℹ️ You are already entered.",ephemeral:true});
+      g.entries.add(interaction.user.id);
+      return interaction.reply({content:"🎉 You are entered!",ephemeral:true});
+    }
+
     if (!guild) return interaction.reply({content:"❌ This can only be used in a server.",ephemeral:true});
 
     if ((interaction.isButton() && interaction.customId.startsWith("ticket_type:")) || (interaction.isStringSelectMenu() && interaction.customId === "ticket_type_select")) {
@@ -647,7 +803,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot"];
+  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot","modlog","history","unwarn","unban","slowmode","nick","softban","unmute","ticket-add","ticket-remove","ticket-rename","giveaway","role","rolepanel","dashboard"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -976,6 +1132,139 @@ client.on("interactionCreate", async interaction => {
         .setTimestamp();
       await channel.send({embeds:[embed]});
       return interaction.reply({content:"✅ Rules panel sent to <#" + channel.id + ">.",ephemeral:true});
+    }
+
+
+    if (interaction.commandName === "modlog" || interaction.commandName === "history") {
+      const user=interaction.options.getUser("user",true);
+      if(!db)return interaction.reply({content:"❌ Supabase persistence is not configured.",ephemeral:true});
+      const {data,error}=await db.from("discord_mod_cases").select("*").eq("guild_id",guild.id).eq("target_user_id",user.id).order("created_at",{ascending:false}).limit(15);
+      if(error)return interaction.reply({content:"❌ Could not load moderation history.",ephemeral:true});
+      const lines=(data||[]).map(c=>`**Case #${c.case_id}** — ${c.action} — <@${c.moderator_user_id}> — ${c.reason||"No reason"}`);
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("🛡️ Moderation History").setDescription(lines.join("\n")||"No cases found.").setColor(0xED4245)],ephemeral:true});
+    }
+    if (interaction.commandName === "unwarn") {
+      const user=interaction.options.getUser("user",true), list=s.warnings.get(user.id)||[];
+      if(!list.length)return interaction.reply({content:"ℹ️ This member has no warnings.",ephemeral:true});
+      list.pop(); s.warnings.set(user.id,list); await saveGuildSettings(guild.id);
+      return interaction.reply({content:"✅ Removed the most recent warning from <@"+user.id+">.",ephemeral:true});
+    }
+    if (interaction.commandName === "unban") {
+      const id=interaction.options.getString("user_id",true);
+      await guild.members.unban(id,"Manual unban").catch(e=>{throw new Error("Could not unban that user: "+e.message);});
+      return interaction.reply({content:"🔓 User **"+id+"** has been unbanned."});
+    }
+    if (interaction.commandName === "slowmode") {
+      const seconds=interaction.options.getInteger("seconds",true);
+      await interaction.channel.setRateLimitPerUser(seconds,"Slowmode update");
+      return interaction.reply({content:"🐢 Slowmode set to **"+seconds+"s**."});
+    }
+    if (interaction.commandName === "nick") {
+      const user=interaction.options.getUser("user",true),member=await guild.members.fetch(user.id);
+      await member.setNickname(interaction.options.getString("nickname")||null,"Nickname update");
+      return interaction.reply({content:"✏️ Nickname updated for <@"+user.id+">."});
+    }
+    if (interaction.commandName === "softban") {
+      const user=interaction.options.getUser("user",true),reason=interaction.options.getString("reason")||"Softban";
+      const member=await guild.members.fetch(user.id);
+      await member.ban({deleteMessageSeconds:86400,reason}); await guild.members.unban(user.id,"Softban cleanup");
+      await addModCase(guild.id,"SOFTBAN",user.id,interaction.user.id,reason);
+      return interaction.reply({content:"🔨 <@"+user.id+"> was softbanned."});
+    }
+    if (interaction.commandName === "unmute") {
+      const user=interaction.options.getUser("user",true),member=await guild.members.fetch(user.id);
+      await member.timeout(null,"Manual unmute");
+      return interaction.reply({content:"🔊 <@"+user.id+"> is no longer timed out."});
+    }
+    if (interaction.commandName.startsWith("ticket-")) {
+      if(!ticketChannel(interaction.channel))return interaction.reply({content:"❌ This command only works inside a ticket.",ephemeral:true});
+      if(interaction.commandName==="ticket-add"){
+        const user=interaction.options.getUser("user",true);
+        await interaction.channel.permissionOverwrites.edit(user.id,{ViewChannel:true,SendMessages:true,ReadMessageHistory:true});
+        return interaction.reply({content:"➕ Added <@"+user.id+"> to this ticket."});
+      }
+      if(interaction.commandName==="ticket-remove"){
+        const user=interaction.options.getUser("user",true);
+        await interaction.channel.permissionOverwrites.delete(user.id).catch(()=>{});
+        return interaction.reply({content:"➖ Removed <@"+user.id+"> from this ticket."});
+      }
+      const name=interaction.options.getString("name",true).toLowerCase().replace(/[^a-z0-9-]/g,"-").replace(/-+/g,"-").slice(0,90);
+      await interaction.channel.setName(name||"ticket");
+      return interaction.reply({content:"✏️ Ticket renamed to **"+(name||"ticket")+"**."});
+    }
+    if (interaction.commandName === "achievements") {
+      const user=interaction.options.getUser("user")||interaction.user,set=getAchievements(guild.id,user.id);
+      const text=ACHIEVEMENTS.map(a=>(set.has(a.id)?"✅ ":"⬜ ")+a.emoji+" **"+a.name+"** — "+a.desc).join("\n");
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("🏆 Achievements — "+user.username).setDescription(text).setColor(0xF1C40F)]});
+    }
+    if (interaction.commandName === "giveaway") {
+      const prize=interaction.options.getString("prize",true),minutes=interaction.options.getInteger("minutes",true),winners=interaction.options.getInteger("winners",true);
+      const id=Date.now().toString(36);
+      const ends=Date.now()+minutes*60000;
+      const embed=new EmbedBuilder().setTitle("🎉 GIVEAWAY").setDescription("Prize: **"+prize+"**\nWinners: **"+winners+"**\nEnds: <t:"+Math.floor(ends/1000)+":R>\n\nClick **Enter Giveaway** below!").setColor(0xF1C40F);
+      const msg=await interaction.channel.send({embeds:[embed],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("giveaway_enter:"+id).setLabel("Enter Giveaway").setEmoji("🎉").setStyle(ButtonStyle.Primary))]});
+      giveaways.set(id,{guildId:guild.id,channelId:interaction.channel.id,messageId:msg.id,prize,winners,ends,entries:new Set()});
+      setTimeout(async()=>{const g=giveaways.get(id);if(!g)return;const ch=guild.channels.cache.get(g.channelId);const m=await ch?.messages.fetch(g.messageId).catch(()=>null);const entries=[...g.entries];const chosen=[];while(entries.length&&chosen.length<g.winners)chosen.push(entries.splice(Math.floor(Math.random()*entries.length),1)[0]);await m?.edit({content:chosen.length?"🎉 Winners: "+chosen.map(x=>"<@"+x+">").join(", ")+" — "+g.prize:"🎉 Giveaway ended with no entries.",components:[]}).catch(()=>{});giveaways.delete(id);},minutes*60000);
+      return interaction.reply({content:"✅ Giveaway created.",ephemeral:true});
+    }
+    if (interaction.commandName === "invite-leaderboard") {
+      const rows=[...inviteCounts.entries()].filter(([k])=>k.startsWith(guild.id+":")).sort((a,b)=>b[1]-a[1]).slice(0,10);
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("📨 Invite Leaderboard").setDescription(rows.map(([k,v],i)=>(i+1)+". <@"+k.split(":")[1]+"> — **"+v+"** invites").join("\n")||"No invites recorded yet.").setColor(0x57F287)]});
+    }
+    if (interaction.commandName === "work") {
+      const key=guild.id+":"+interaction.user.id,last=dailyCooldown.get("work:"+key)||0;
+      if(Date.now()-last<3600000)return interaction.reply({content:"⏳ You can work again in **"+Math.ceil((3600000-(Date.now()-last))/60000)+"m**.",ephemeral:true});
+      const earned=100+Math.floor(Math.random()*201),e=await getEconomy(guild.id,interaction.user.id);e.balance+=earned;dailyCooldown.set("work:"+key,Date.now());await saveEconomy(guild.id,interaction.user.id,e);
+      return interaction.reply({content:"💼 You earned **"+earned+"** coins!"});
+    }
+    if (interaction.commandName === "richest") {
+      if(!db)return interaction.reply({content:"❌ Supabase persistence is not configured.",ephemeral:true});
+      const {data,error}=await db.from("discord_economy").select("user_id,balance").eq("guild_id",guild.id).order("balance",{ascending:false}).limit(10);
+      if(error)return interaction.reply({content:"❌ Could not load the economy leaderboard.",ephemeral:true});
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("💰 Richest Members").setDescription((data||[]).map((x,i)=>(i+1)+". <@"+x.user_id+"> — **"+x.balance+"** coins").join("\n")||"No economy data yet.").setColor(0xF1C40F)]});
+    }
+    if (interaction.commandName === "economy") {
+      const e=await getEconomy(guild.id,interaction.user.id);
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("💰 Economy Profile").setDescription("Balance: **"+e.balance+"** coins\nInventory: **"+e.inventory.length+"** items").setColor(0x57F287)]});
+    }
+    if (interaction.commandName === "role") {
+      const sub=interaction.options.getSubcommand(),role=interaction.options.getRole("role");
+      if(sub==="create"){const name=interaction.options.getString("name",true),color=parseColor(interaction.options.getString("color"));const r=await guild.roles.create({name,color,reason:"Role management"});return interaction.reply({content:"🎭 Created <@&"+r.id+">."});}
+      if(!role)return interaction.reply({content:"❌ Role not found.",ephemeral:true});
+      if(role.managed||role.position>=guild.members.me.roles.highest.position)return interaction.reply({content:"❌ I cannot manage that role.",ephemeral:true});
+      if(sub==="delete"){await role.delete("Role management");return interaction.reply({content:"🗑️ Role deleted."});}
+      if(sub==="rename"){await role.edit({name:interaction.options.getString("name",true)});return interaction.reply({content:"✏️ Role renamed."});}
+      if(sub==="color"){await role.edit({color:parseColor(interaction.options.getString("color",true))});return interaction.reply({content:"🎨 Role color updated."});}
+      const user=interaction.options.getUser("user",true),member=await guild.members.fetch(user.id);
+      if(sub==="give"){await member.roles.add(role,"Role management");return interaction.reply({content:"➕ Added <@&"+role.id+"> to <@"+user.id+">."});}
+      await member.roles.remove(role,"Role management");return interaction.reply({content:"➖ Removed <@&"+role.id+"> from <@"+user.id+">."});
+    }
+    if (interaction.commandName === "rolepanel") {
+      const roles=["role1","role2","role3","role4","role5"].map(x=>interaction.options.getRole(x)).filter(Boolean);
+      const menu=new StringSelectMenuBuilder().setCustomId("role_select").setPlaceholder("🎭 Select your roles").setMinValues(0).setMaxValues(roles.length).addOptions(roles.map(r=>({label:r.name.slice(0,100),value:r.id})));
+      await interaction.channel.send({embeds:[new EmbedBuilder().setTitle("🎭 Self Roles").setDescription("Select the roles you want. Selecting them again removes them.").setColor(0x5865F2)],components:[new ActionRowBuilder().addComponents(menu)]});
+      return interaction.reply({content:"✅ Role panel created.",ephemeral:true});
+    }
+    if (interaction.commandName === "poll") {
+      const q=interaction.options.getString("question",true);
+      const m=await interaction.channel.send({embeds:[new EmbedBuilder().setTitle("📊 Poll").setDescription(q).setColor(0x5865F2)]});
+      await m.react("👍"); await m.react("👎");
+      return interaction.reply({content:"✅ Poll created.",ephemeral:true});
+    }
+    if (interaction.commandName === "8ball") {
+      const answers=["Yes.","No.","Maybe.","Definitely.","Probably not.","Ask again later.","Absolutely.","It is unclear."];
+      return interaction.reply({content:"🎱 **"+answers[Math.floor(Math.random()*answers.length)]+"**"});
+    }
+    if (interaction.commandName === "ship") {
+      const user=interaction.options.getUser("user",true),seed=[guild.id,interaction.user.id,user.id].sort().join(":");
+      let n=0;for(const c of seed)n=(n*31+c.charCodeAt(0))%101;
+      return interaction.reply({content:"🤝 Friendship score: **"+n+"%**"});
+    }
+    if (interaction.commandName === "membercount") return interaction.reply({content:"👥 Server members: **"+guild.memberCount+"**"});
+    if (interaction.commandName === "ping") return interaction.reply({content:"🏓 Pong! **"+client.ws.ping+"ms**"});
+    if (interaction.commandName === "dashboard") {
+      const st=statBucket(guild.id);
+      return interaction.reply({embeds:[new EmbedBuilder().setTitle("📊 Server Dashboard").setDescription("Members: **"+guild.memberCount+"**\nChannels: **"+guild.channels.cache.size+"**\nRoles: **"+guild.roles.cache.size+"**\nMessages tracked: **"+st.messages+"**\nJoins: **"+st.joins+"**\nLeaves: **"+st.leaves+"**\nTickets open: **"+guild.channels.cache.filter(c=>ticketChannel(c)).size+"**").setColor(0x5865F2)]});
     }
 
     if (interaction.commandName === "serverinfo") {
