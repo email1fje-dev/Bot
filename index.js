@@ -1,9 +1,5 @@
-c
-  const achievementSet=getAchievements(message.guild.id,message.author.id);
-  if(!achievementSet.has("first-message")) await unlockAchievement(message.guild,message.author.id,"first-message",message.channel);
-  if(statBucket(message.guild.id).messages>=100 && !achievementSet.has("messages-100")) await unlockAchievement(message.guild,message.author.id,"messages-100",message.channel);
-
-onst { createClient } = require("@supabase/supabase-js");
+const extraFeatures = require("./extraFeatures");
+const { createClient } = require("@supabase/supabase-js");
 
 const {
   Client,
