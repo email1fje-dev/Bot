@@ -2,10 +2,6 @@ server:
   port: 2333
   address: 0.0.0.0
 
-plugins:
-  - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
-    snapshot: false
-
 lavalink:
   server:
     password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
@@ -16,7 +12,27 @@ lavalink:
       local: false
     soundcloudFilterOutPreviewTracks: true
 
+plugins:
+  - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+    snapshot: false
+
 logging:
   level:
     root: INFO
     lavalink: INFO
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
+
+plugins:
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    clients:
+      - WEB
+      - MWEB
+      - ANDROID_VR
+      - WEBEMBEDDED
+      - TVHTML5_SIMPLY
+    oauth:
+      enabled: true
