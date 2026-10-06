@@ -11,16 +11,9 @@ lavalink:
       http: true
       local: false
     soundcloudFilterOutPreviewTracks: true
-
-plugins:
-  - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
-    snapshot: false
-
-logging:
-  level:
-    root: INFO
-    lavalink: INFO
-    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
+      snapshot: false
 
 plugins:
   youtube:
@@ -36,3 +29,9 @@ plugins:
       - TVHTML5_SIMPLY
     oauth:
       enabled: true
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO
+    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
