@@ -1,0 +1,13 @@
+FROM node:22-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 python3-pip ffmpeg ca-certificates \
+  && pip3 install --break-system-packages --no-cache-dir -U yt-dlp \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY music-service/package.json ./package.json
+COPY music-service/server.js ./server.js
+
+ENV NODE_ENV=production
+CMD ["node", "server.js"]
