@@ -11,28 +11,8 @@ lavalink:
       http: true
       local: false
     soundcloudFilterOutPreviewTracks: true
-  plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
-      snapshot: false
-
-plugins:
-  youtube:
-    enabled: true
-    allowSearch: true
-    allowDirectVideoIds: true
-    allowDirectPlaylistIds: true
-    clients:
-      - TV
-      - ANDROID_VR
-      - WEB
-      - MWEB
-      - MUSIC
-    oauth:
-      enabled: true
-      skipInitialization: false
 
 logging:
   level:
     root: INFO
     lavalink: INFO
-    dev.lavalink.youtube.http.YoutubeOauth2Handler: INFO
