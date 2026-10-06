@@ -18,7 +18,7 @@ function config() {
     password: process.env.LAVALINK_PASSWORD,
     port: Number(process.env.LAVALINK_PORT || 2333),
     secure: String(process.env.LAVALINK_SECURE || "false").toLowerCase() === "true",
-    source: process.env.LAVALINK_SEARCH_PREFIX || ""
+    source: process.env.LAVALINK_SEARCH_PREFIX || "scsearch"
   };
 }
 
@@ -60,8 +60,6 @@ async function ensurePlayer(interaction) {
 
 async function searchMusic(query) {
   const prefix = config().source;
-  if (!prefix) throw new Error("Set LAVALINK_SEARCH_PREFIX in the bot environment.");
-
   const result = await getNode().search({ query, source: prefix }, null, false);
   return (result?.tracks || []).slice(0, 5);
 }
