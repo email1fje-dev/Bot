@@ -1,4 +1,4 @@
-const extraFeatures = require("./extraFeatures");
+const extraFeatures = require("./extraFeatures");\nconst music = require("./music");
 const { createClient } = require("@supabase/supabase-js");
 const ws = require("ws");
 
