@@ -22,13 +22,14 @@ plugins:
     allowDirectVideoIds: true
     allowDirectPlaylistIds: true
     clients:
-      - MUSIC
+      - TV
       - ANDROID_VR
       - WEB
       - MWEB
-      - TVHTML5_SIMPLY
+      - MUSIC
     oauth:
       enabled: true
+      skipInitialization: false
 
 logging:
   level:
