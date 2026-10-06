@@ -1,4 +1,5 @@
-const extraFeatures = require("./extraFeatures");\nconst music = require("./music");
+const extraFeatures = require("./extraFeatures");
+const music = require("./music");
 const { createClient } = require("@supabase/supabase-js");
 const ws = require("ws");
 
@@ -46,6 +47,8 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates
   ]
 });
+
+music.attach(client);
 
 // Per-server runtime settings. Defaults are safe and require no hard-coded server name.
 const settings = new Map();
@@ -486,6 +489,7 @@ async function cacheGuildInvites(guild) {
 }
 
 const commands = [
+  ...music.commands.map(c => c),
   ...extraFeatures.commands.map(c => c),
   new SlashCommandBuilder()
     .setName("hidem")
@@ -705,6 +709,8 @@ client.on("inviteDelete", invite => {
 });
 
 client.on("interactionCreate", async interaction => {
+  const handledMusic = await music.handleInteraction(interaction);
+  if (handledMusic) return;
   if (interaction.isChatInputCommand()) {
     const handled = await extraFeatures.handleInteraction(interaction, {client, getLevelInfo, saveLevelData, applyLevelRole, statBucket});
     if (handled) return;
