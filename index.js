@@ -488,6 +488,67 @@ async function cacheGuildInvites(guild) {
   }
 }
 
+async function setupSelfRoles(guild) {
+  const definitions = [
+    {name:"Announcement", color:0x5865F2, emoji:"📢"},
+    {name:"Promotion", color:0xE84393, emoji:"📣"},
+    {name:"Update", color:0x2ECC71, emoji:"🔔"}
+  ];
+  const me = guild.members.me;
+  if (!me) throw new Error("Bot member is unavailable.");
+  const roles = {};
+
+  for (const def of definitions) {
+    let role = guild.roles.cache.find(r => r.name === def.name && !r.managed);
+    if (!role) {
+      role = await guild.roles.create({
+        name:def.name,
+        color:def.color,
+        mentionable:true,
+        reason:"Self role setup"
+      });
+    } else {
+      await role.edit({
+        color:def.color,
+        mentionable:true,
+        reason:"Self role setup"
+      }).catch(()=>{});
+    }
+    roles[def.name] = role;
+  }
+
+  const highest = me.roles.highest.position;
+  const blocked = definitions.filter(def => roles[def.name].position >= highest);
+  if (blocked.length) {
+    throw new Error("Move the bot's highest role above: " + blocked.map(x => x.name).join(", "));
+  }
+
+  return roles;
+}
+
+function selfRolePanel(guild) {
+  const definitions = [
+    {name:"Announcement", color:0x5865F2, emoji:"📢", id:"selfrole:announcement"},
+    {name:"Promotion", color:0xE84393, emoji:"📣", id:"selfrole:promotion"},
+    {name:"Update", color:0x2ECC71, emoji:"🔔", id:"selfrole:update"}
+  ];
+  const buttons = definitions.map(def =>
+    new ButtonBuilder()
+      .setCustomId(def.id)
+      .setLabel(def.name)
+      .setEmoji(def.emoji)
+      .setStyle(ButtonStyle.Secondary)
+  );
+  return {
+    embed:new EmbedBuilder()
+      .setTitle("🎭 Self Roles")
+      .setDescription("Choose the notifications you want to receive.\n\n📢 **Announcement**\n📣 **Promotion**\n🔔 **Update**\n\nClick a button to add or remove the role.")
+      .setColor(0x5865F2)
+      .setFooter({text:guild.name}),
+    row:new ActionRowBuilder().addComponents(buttons)
+  };
+}
+
 const commands = [
   ...music.commands.map(c => c),
   ...extraFeatures.commands.map(c => c),
@@ -661,6 +722,8 @@ const commands = [
     .addSubcommand(sub=>sub.setName("remove").setDescription("Remove a role from a member.")
       .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true))
       .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true))),
+  new SlashCommandBuilder().setName("selfrole").setDescription("Create and configure the self roles."),
+  new SlashCommandBuilder().setName("srm").setDescription("Send the self-role selection panel."),
   new SlashCommandBuilder().setName("rolepanel").setDescription("Create a self-role selection panel.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addRoleOption(o=>o.setName("role1").setDescription("Role 1.").setRequired(true))
@@ -727,6 +790,29 @@ client.on("interactionCreate", async interaction => {
         }
       }
       return interaction.reply({content:"🎭 Your roles have been updated.",ephemeral:true});
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("selfrole:")) {
+      const roles = {
+        announcement:"Announcement",
+        promotion:"Promotion",
+        update:"Update"
+      };
+      const key = interaction.customId.split(":")[1];
+      const roleName = roles[key];
+      if (!roleName) return interaction.reply({content:"❌ Unknown self role.",ephemeral:true});
+      const role = guild.roles.cache.find(r => r.name === roleName && !r.managed);
+      if (!role) return interaction.reply({content:"❌ This self role is not configured yet. Ask an administrator to run /selfrole.",ephemeral:true});
+      const member = await guild.members.fetch(interaction.user.id);
+      if (role.position >= guild.members.me.roles.highest.position) {
+        return interaction.reply({content:"❌ I cannot manage this role. Move my highest role above it.",ephemeral:true});
+      }
+      if (member.roles.cache.has(role.id)) {
+        await member.roles.remove(role,"Self role toggle");
+        return interaction.reply({content:"➖ Removed **"+role.name+"** from you.",ephemeral:true});
+      }
+      await member.roles.add(role,"Self role toggle");
+      return interaction.reply({content:"➕ Added **"+role.name+"** to you.",ephemeral:true});
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("giveaway_enter:")) {
@@ -818,12 +904,27 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot","modlog","history","unwarn","unban","slowmode","nick","softban","unmute","ticket-add","ticket-remove","ticket-rename","giveaway","role","rolepanel","dashboard"];
+  const adminCommands = ["selfrole","srm","hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot","modlog","history","unwarn","unban","slowmode","nick","softban","unmute","ticket-add","ticket-remove","ticket-rename","giveaway","role","rolepanel","dashboard"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
 
   try {
+    if (interaction.commandName === "selfrole") {
+      const roles = await setupSelfRoles(guild);
+      return interaction.reply({
+        content:"✅ Self roles are ready:\n📢 <@&"+roles.Announcement.id+">\n📣 <@&"+roles.Promotion.id+">\n🔔 <@&"+roles.Update.id+">\n\nNow use **/srm** to send the selection panel.",
+        ephemeral:true
+      });
+    }
+
+    if (interaction.commandName === "srm") {
+      const roles = await setupSelfRoles(guild);
+      const panel = selfRolePanel(guild);
+      await interaction.channel.send({embeds:[panel.embed],components:[panel.row]});
+      return interaction.reply({content:"✅ Self-role panel sent.",ephemeral:true});
+    }
+
     if (interaction.commandName === "ticketpanel") {
       const title = interaction.options.getString("title") || "🎫 Support Tickets";
       const description = interaction.options.getString("description") ||
