@@ -7,7 +7,6 @@ const state = {
 };
 
 const commands = [
-  ...music.commands.map(c => c),
   new SlashCommandBuilder().setName("automod").setDescription("Professional AutoMod controls.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addSubcommand(s=>s.setName("setup").setDescription("Enable the professional AutoMod preset."))
