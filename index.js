@@ -807,12 +807,33 @@ const commands = [
   new SlashCommandBuilder().setName("dashboard").setDescription("Show the server dashboard.")
 ];
 
+function normalizeCommandOptions(command) {
+  const data = command.toJSON();
+  function normalize(options) {
+    if (!Array.isArray(options)) return options;
+    // Subcommands/groups keep their declared order; sort each leaf command's
+    // parameters so required options always precede optional ones (Discord API rule).
+    if (options.some(option => option.type === 1 || option.type === 2)) {
+      for (const option of options) {
+        if ((option.type === 1 || option.type === 2) && Array.isArray(option.options)) {
+          option.options = normalize(option.options);
+        }
+      }
+      return options;
+    }
+    return options.map((option, index) => ({...option, __originalIndex:index}))
+      .sort((a,b) => Number(!!b.required) - Number(!!a.required) || a.__originalIndex - b.__originalIndex)
+      .map(({__originalIndex, ...option}) => option);
+  }
+  if (Array.isArray(data.options)) data.options = normalize(data.options);
+  return data;
+}
+
 async function registerCommands() {
   const rest = new REST({version:"10"}).setToken(TOKEN);
-  await rest.put(Routes.applicationCommands(CLIENT_ID), {
-    body: commands.map(c => c.toJSON())
-  });
-  console.log(`Registered ${commands.length} GLOBAL slash commands.`);
+  const body = commands.map(normalizeCommandOptions);
+  await rest.put(Routes.applicationCommands(CLIENT_ID), {body});
+  console.log(`Registered ${body.length} GLOBAL slash commands.`);
 }
 
 client.once("ready", async () => {
