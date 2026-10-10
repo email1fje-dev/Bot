@@ -1017,6 +1017,29 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({content:"✅ Team selection panel sent.",ephemeral:true});
     }
 
+    if (interaction.commandName === "rankupparty") {
+      const isStaffManager = interaction.member.roles?.cache?.some(role => role.name.toLowerCase() === "staff manager");
+      if (!isAdmin(interaction.member) && !isStaffManager) {
+        return interaction.reply({content:"❌ Only Staff Manager or an Administrator can create the rank-up party panel.",ephemeral:true});
+      }
+      const title = interaction.options.getString("title") || "🎉 STAFF MANAGER RANK-UP PARTY 🎉";
+      const description = interaction.options.getString("description") || "We’re celebrating the Staff Manager promotion! Come hang out, have fun, and make some noise! 🔥";
+      const time = interaction.options.getString("time");
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(description + (time ? "\n\n🕒 **When:** "+time : "") + "\n\n🎉 **RSVPs**\n✅ Coming: **0**\n❌ Can't come: **0**")
+        .setColor(0xE53935)
+        .setFooter({text:"Staff Manager Rank-Up Party • Tap a button to update your RSVP"})
+        .setTimestamp();
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("rankparty:coming").setLabel("Count me in!").setEmoji("🎉").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId("rankparty:cant").setLabel("Can't attend").setEmoji("❌").setStyle(ButtonStyle.Secondary)
+      );
+      const message = await interaction.channel.send({embeds:[embed],components:[row]});
+      rankUpParties.set(message.id,{title,description,time,responses:new Map()});
+      return interaction.reply({content:"✅ Rank-up party RSVP panel posted!",ephemeral:true});
+    }
+
     if (interaction.commandName === "ticketpanel") {
       const title = interaction.options.getString("title") || "🎫 Support Tickets";
       const description = interaction.options.getString("description") ||
