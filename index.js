@@ -223,6 +223,7 @@ async function addModCase(guildId,action,targetUserId,moderatorUserId,reason){
 const SHOP_ITEMS=[{id:"coffee",name:"☕ Coffee",price:100},{id:"cookie",name:"🍪 Cookie",price:250},{id:"gem",name:"💎 Gem",price:1000}];
 const achievements = new Map();
 const giveaways = new Map();
+const rankUpParties = new Map();
 
 const ACHIEVEMENTS = [
   {id:"first-message",name:"First Message",emoji:"💬",desc:"Send your first message."},
