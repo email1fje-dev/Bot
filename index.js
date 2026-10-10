@@ -224,6 +224,7 @@ const SHOP_ITEMS=[{id:"coffee",name:"☕ Coffee",price:100},{id:"cookie",name:"�
 const achievements = new Map();
 const giveaways = new Map();
 const rankUpParties = new Map();
+const stageEvents = new Map();
 
 const ACHIEVEMENTS = [
   {id:"first-message",name:"First Message",emoji:"💬",desc:"Send your first message."},
@@ -757,6 +758,28 @@ const commands = [
   new SlashCommandBuilder().setName("srm").setDescription("Send the self-role selection panel."),
   new SlashCommandBuilder().setName("comp").setDescription("Create the Kylo Fan, Lumiz Fan, and Beginner Fan roles."),
   new SlashCommandBuilder().setName("compm").setDescription("Send the team selection panel."),
+  new SlashCommandBuilder().setName("stageevent").setDescription("Manage the Stage-only Rank-Up Party prize event.")
+    .addSubcommand(sub=>sub.setName("start").setDescription("Start a Stage-only prize event.")
+      .addChannelOption(o=>o.setName("stage").setDescription("The Stage channel participants must stay in.").addChannelTypes(ChannelType.GuildStageVoice).setRequired(true))
+      .addChannelOption(o=>o.setName("announcements").setDescription("Text channel for event announcements.").addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand(sub=>sub.setName("quiz").setDescription("Post a quiz question; first correct eligible answer wins points.")
+      .addStringOption(o=>o.setName("question").setDescription("Question to ask.").setRequired(true).setMaxLength(800))
+      .addStringOption(o=>o.setName("answer").setDescription("Correct answer (kept private).").setRequired(true).setMaxLength(100))
+      .addIntegerOption(o=>o.setName("points").setDescription("Points awarded for the correct answer.").setMinValue(1).setMaxValue(100)))
+    .addSubcommand(sub=>sub.setName("challenge").setDescription("Announce a challenge and its prize.")
+      .addStringOption(o=>o.setName("description").setDescription("Challenge instructions.").setRequired(true).setMaxLength(1000))
+      .addStringOption(o=>o.setName("prize").setDescription("Prize for the challenge.").setRequired(true).setMaxLength(200)))
+    .addSubcommand(sub=>sub.setName("draw").setDescription("Randomly choose prize winner(s) from eligible Stage members.")
+      .addStringOption(o=>o.setName("prize").setDescription("Prize description.").setRequired(true).setMaxLength(200))
+      .addIntegerOption(o=>o.setName("winners").setDescription("Number of winners.").setMinValue(1).setMaxValue(10)))
+    .addSubcommand(sub=>sub.setName("mystery").setDescription("Give a surprise prize to one eligible Stage member.")
+      .addStringOption(o=>o.setName("prize").setDescription("Surprise prize description.").setRequired(true).setMaxLength(200)))
+    .addSubcommand(sub=>sub.setName("award").setDescription("Award a prize to a member currently eligible in the Stage.")
+      .addUserOption(o=>o.setName("user").setDescription("Prize winner.").setRequired(true))
+      .addStringOption(o=>o.setName("prize").setDescription("Prize description.").setRequired(true).setMaxLength(200)))
+    .addSubcommand(sub=>sub.setName("status").setDescription("Show the Stage event leaderboard and eligible members."))
+    .addSubcommand(sub=>sub.setName("end").setDescription("End the event and announce the points champion.")
+      .addStringOption(o=>o.setName("prize").setDescription("Optional champion prize.").setMaxLength(200))),
   new SlashCommandBuilder().setName("rankupparty").setDescription("Create a Staff Manager rank-up party RSVP panel.")
     .addStringOption(o=>o.setName("title").setDescription("Party title.").setMaxLength(100))
     .addStringOption(o=>o.setName("description").setDescription("Party details.").setMaxLength(1000))
@@ -1015,6 +1038,88 @@ client.on("interactionCreate", async interaction => {
       const panel = compRolePanel(guild);
       await interaction.channel.send({embeds:[panel.embed],components:[panel.row]});
       return interaction.reply({content:"✅ Team selection panel sent.",ephemeral:true});
+    }
+
+    if (interaction.commandName === "stageevent") {
+      const sub = interaction.options.getSubcommand();
+      const canManage = isAdmin(interaction.member) || interaction.member.roles?.cache?.some(role => role.name.toLowerCase() === "staff manager");
+      const event = stageEvents.get(guild.id);
+      const announce = event ? guild.channels.cache.get(event.announceChannelId) : null;
+      const eventChannel = event ? (announce?.isTextBased() ? announce : interaction.channel) : interaction.channel;
+      const isEligibleNow = (userId, activeEvent = event) => {
+        if (!activeEvent) return false;
+        const p = activeEvent.participants.get(userId);
+        const member = guild.members.cache.get(userId);
+        return !!p && !p.disqualified && member?.voice?.channelId === activeEvent.stageChannelId;
+      };
+      const eligibleIds = (activeEvent = event) => activeEvent ? [...activeEvent.participants.keys()].filter(id => isEligibleNow(id, activeEvent)) : [];
+      if (sub !== "status" && sub !== "end" && !canManage) return interaction.reply({content:"❌ Only Staff Manager or an Administrator can manage the Stage event.",ephemeral:true});
+      if (sub === "start") {
+        if (stageEvents.has(guild.id)) return interaction.reply({content:"❌ A Stage event is already active. Use /stageevent end first.",ephemeral:true});
+        const stage = interaction.options.getChannel("stage", true);
+        if (stage.type !== ChannelType.GuildStageVoice) return interaction.reply({content:"❌ Choose a Discord Stage channel.",ephemeral:true});
+        const announcementChannel = interaction.options.getChannel("announcements") || interaction.channel;
+        const participants = new Map();
+        for (const member of stage.members.values()) participants.set(member.id,{points:0,disqualified:false,joinedAt:Date.now()});
+        const newEvent = {guildId:guild.id,stageChannelId:stage.id,announceChannelId:announcementChannel.id,participants,quiz:null,startedAt:Date.now()};
+        stageEvents.set(guild.id,newEvent);
+        const embed = new EmbedBuilder().setTitle("🎉 STAGE PRIZE EVENT IS LIVE!")
+          .setDescription("Only members in <#"+stage.id+"> are eligible for prizes.\n\n🏆 Play quizzes, complete challenges, and enter prize draws!\n🚪 Leaving the Stage makes you ineligible for the rest of this event.")
+          .addFields({name:"Eligible at launch",value:String(participants.size),inline:true},{name:"How to win",value:"Quiz points • Prize draws • Challenges • Mystery prizes",inline:true})
+          .setColor(0xE53935).setTimestamp();
+        await announcementChannel.send({embeds:[embed]}).catch(()=>{});
+        return interaction.reply({content:"✅ Stage prize event started in <#"+stage.id+">. Eligible at launch: **"+participants.size+"**.",ephemeral:true});
+      }
+      if (!event) return interaction.reply({content:"❌ No active Stage event. Start one with /stageevent start.",ephemeral:true});
+      if (sub === "quiz") {
+        if (event.quiz) return interaction.reply({content:"❌ A quiz is already active. Wait for someone to answer or post a new quiz after it is solved.",ephemeral:true});
+        const question=interaction.options.getString("question",true);
+        const answer=interaction.options.getString("answer",true).trim().toLocaleLowerCase();
+        const points=interaction.options.getInteger("points") || 100;
+        event.quiz={answer,points,question,startedAt:Date.now()};
+        await eventChannel.send({embeds:[new EmbedBuilder().setTitle("🧠 LIVE STAGE QUIZ").setDescription(question+"\n\n💎 First correct answer from an eligible Stage member wins **"+points+" points**!").setColor(0x5865F2).setFooter({text:"Answers must be sent in this text channel while staying in the Stage."})]}).catch(()=>{});
+        return interaction.reply({content:"✅ Quiz posted. The answer is private and the first eligible correct answer gets "+points+" points.",ephemeral:true});
+      }
+      if (sub === "challenge") {
+        const description=interaction.options.getString("description",true),prize=interaction.options.getString("prize",true);
+        await eventChannel.send({embeds:[new EmbedBuilder().setTitle("⚡ STAGE CHALLENGE").setDescription(description+"\n\n🎁 **Prize:** "+prize+"\n\nOnly eligible members currently in the Stage can win. Staff can select the winner with /stageevent award.").setColor(0xF1C40F).setTimestamp()]});
+        return interaction.reply({content:"✅ Challenge announced.",ephemeral:true});
+      }
+      if (sub === "draw" || sub === "mystery") {
+        const prize=interaction.options.getString("prize",true);
+        const requested=sub==="mystery"?1:(interaction.options.getInteger("winners")||1);
+        const pool=eligibleIds().sort(()=>Math.random()-0.5);
+        const winners=pool.slice(0,Math.min(requested,pool.length));
+        if (!winners.length) return interaction.reply({content:"❌ There are no eligible members currently in the Stage.",ephemeral:true});
+        await eventChannel.send({embeds:[new EmbedBuilder().setTitle(sub==="mystery"?"🎁 MYSTERY PRIZE":"🎲 STAGE PRIZE DRAW")
+          .setDescription("🎁 **Prize:** "+prize+"\n\n🏆 **Winner"+(winners.length===1?"":"s")+"**\n"+winners.map((id,i)=>(i+1)+". <@"+id+">").join("\n"))
+          .setColor(sub==="mystery"?0x9B59B6:0xF1C40F).setTimestamp()]});
+        return interaction.reply({content:"✅ Winner"+(winners.length===1?"":"s")+" selected from eligible Stage members.",ephemeral:true});
+      }
+      if (sub === "award") {
+        const user=interaction.options.getUser("user",true),prize=interaction.options.getString("prize",true);
+        if (!isEligibleNow(user.id)) return interaction.reply({content:"❌ That member must still be in the event Stage and must not have left it during this event.",ephemeral:true});
+        await eventChannel.send({embeds:[new EmbedBuilder().setTitle("🏆 PRIZE AWARDED!").setDescription("Congratulations <@"+user.id+">!\n\n🎁 **Prize:** "+prize).setColor(0x57F287).setTimestamp()]});
+        return interaction.reply({content:"✅ Prize announcement posted.",ephemeral:true});
+      }
+      if (sub === "status") {
+        const rows=[...event.participants.entries()].filter(([id,p])=>!p.disqualified).sort((a,b)=>b[1].points-a[1].points).slice(0,10);
+        return interaction.reply({embeds:[new EmbedBuilder().setTitle("🏆 Stage Event Leaderboard")
+          .setDescription(rows.map(([id,p],i)=>(i+1)+". <@"+id+"> — **"+p.points+" points**"+(isEligibleNow(id)?"":" *(not currently eligible)*")).join("\n")||"No participants tracked yet.")
+          .addFields({name:"Eligible in Stage now",value:String(eligibleIds().length),inline:true},{name:"Event Stage",value:"<#"+event.stageChannelId+">",inline:true})
+          .setColor(0xF1C40F)]});
+      }
+      if (sub === "end") {
+        if (!canManage) return interaction.reply({content:"❌ Only Staff Manager or an Administrator can end the event.",ephemeral:true});
+        const prize=interaction.options.getString("prize");
+        const rows=[...event.participants.entries()].filter(([id,p])=>!p.disqualified && isEligibleNow(id)).sort((a,b)=>b[1].points-a[1].points);
+        const top=rows.length?rows[0][1].points:0;
+        const champions=rows.filter(([,p])=>p.points===top);
+        const desc=champions.length ? "👑 **Champion"+(champions.length===1?"":"s")+"**\n"+champions.map(([id])=>"<@"+id+"> — **"+top+" points**").join("\n")+(prize?"\n\n🎁 **Champion prize:** "+prize:"") : "No eligible members remained in the Stage at the end of the event.";
+        await eventChannel.send({embeds:[new EmbedBuilder().setTitle("🏁 STAGE EVENT ENDED").setDescription(desc).setColor(0xE53935).setTimestamp()]});
+        stageEvents.delete(guild.id);
+        return interaction.reply({content:"✅ Event ended and the final result was announced.",ephemeral:true});
+      }
     }
 
     if (interaction.commandName === "rankupparty") {
@@ -1519,6 +1624,25 @@ const linkRegex = /(?:https?:\/\/|www\.|discord\.gg\/|discord(?:app)?\.com\/invi
 
 client.on("messageCreate", async message => {
   if (!message.guild || message.author.bot) return;
+
+  // Stage event quiz answers: only continuously eligible Stage participants can score.
+  const stageEvent = stageEvents.get(message.guild.id);
+  if (stageEvent?.quiz && message.channel.id === stageEvent.announceChannelId) {
+    const participant = stageEvent.participants.get(message.author.id);
+    const member = message.member || await message.guild.members.fetch(message.author.id).catch(()=>null);
+    if (participant && !participant.disqualified && member?.voice?.channelId === stageEvent.stageChannelId) {
+      const normalize = value => String(value||"").trim().toLocaleLowerCase().replace(/[.!?]+$/g,"").replace(/\\s+/g," ");
+      if (normalize(message.content) === normalize(stageEvent.quiz.answer)) {
+        const points = stageEvent.quiz.points;
+        participant.points += points;
+        stageEvent.quiz = null;
+        await message.channel.send({embeds:[new EmbedBuilder().setTitle("✅ CORRECT ANSWER!")
+          .setDescription("<@"+message.author.id+"> was first with the correct answer and earned **"+points+" points**! 🎉")
+          .setColor(0x57F287).setTimestamp()]}).catch(()=>{});
+        return;
+      }
+    }
+  }
   const s = getSettings(message.guild.id);
   statBucket(message.guild.id).messages++;
 
@@ -1792,6 +1916,20 @@ client.on("guildMemberUpdate", async (oldMember,newMember) => {
   }
 });
 client.on("voiceStateUpdate", async (oldState,newState) => {
+  // Leaving the event Stage disqualifies a participant for the rest of the event.
+  const activeEvent = stageEvents.get(newState.guild.id);
+  if (activeEvent) {
+    const userId = newState.id;
+    const oldWasEventStage = oldState.channelId === activeEvent.stageChannelId;
+    const newIsEventStage = newState.channelId === activeEvent.stageChannelId;
+    if (oldWasEventStage && !newIsEventStage) {
+      const p = activeEvent.participants.get(userId);
+      if (p) p.disqualified = true;
+    }
+    if (newIsEventStage && !oldWasEventStage && !activeEvent.participants.has(userId)) {
+      activeEvent.participants.set(userId,{points:0,disqualified:false,joinedAt:Date.now()});
+    }
+  }
   if (!oldState.channelId && newState.channelId)
     await sendLogEmbed(newState.guild,"member",new EmbedBuilder().setTitle("🔊 VOICE JOIN")
       .setDescription("<@"+newState.id+"> joined <#"+newState.channelId+">.").setColor(0x57F287).setTimestamp());
