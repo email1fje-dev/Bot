@@ -572,7 +572,7 @@ function compRolePanel(guild) {
   );
   return {
     embed:new EmbedBuilder().setTitle("🏆 Which team are you on?")
-      .setDescription("Choose your team below!\\n\\n🔴 **Kylo Fan**\\n🔵 **Lumiz Fan**\\n\\nYou can switch teams any time.")
+      .setDescription("Choose your team below!\n\n🔴 **Kylo Fan**\n🔵 **Lumiz Fan**\n\nYou can switch teams any time.")
       .setColor(0xE53935).setFooter({text:guild.name}),
     row
   };
