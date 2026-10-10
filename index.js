@@ -1673,9 +1673,10 @@ client.on("messageCreate", async message => {
       const normalize = value => String(value||"").trim().toLocaleLowerCase().replace(/[.!?]+$/g,"").replace(/\\s+/g," ");
       if (normalize(message.content) === normalize(stageEvent.quiz.answer)) {
         const points = stageEvent.quiz.points;
+        const wasTypingRace = stageEvent.quiz.mode === "type";
         participant.points += points;
         stageEvent.quiz = null;
-        await message.channel.send({embeds:[new EmbedBuilder().setTitle(stageEvent.quiz?.mode==="type" ? "⌨️ TYPING RACE WON!" : "✅ CORRECT ANSWER!")
+        await message.channel.send({embeds:[new EmbedBuilder().setTitle(wasTypingRace ? "⌨️ TYPING RACE WON!" : "✅ CORRECT ANSWER!")
           .setDescription("<@"+message.author.id+"> was first with the correct answer and earned **"+points+" points**! 🎉")
           .setColor(0x57F287).setTimestamp()]}).catch(()=>{});
         return;
