@@ -569,7 +569,7 @@ function compRolePanel(guild) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("comp:kylo").setLabel("Kylo Fan").setEmoji("🔴").setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId("comp:lumiz").setLabel("Lumiz Fan").setEmoji("🔵").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("comp:beginner").setLabel("Beginner Fan").setEmoji("🟡").setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId("comp:beginner").setLabel("Beginner Fan").setEmoji("🟡").setStyle(ButtonStyle.Success)
   );
   return {
     embed:new EmbedBuilder().setTitle("🏆 Which team are you on?")
@@ -826,7 +826,7 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.isButton() && interaction.customId.startsWith("comp:")) {
       const teamKey = interaction.customId.split(":")[1];
-      const teamRoles = {kylo:"Kylo Fan",lumiz:"Lumiz Fan",begginer:"Beginner Fan"};
+      const teamRoles = {kylo:"Kylo Fan",lumiz:"Lumiz Fan",beginner:"Beginner Fan"};
       const roleName = teamRoles[teamKey];
       if (!roleName) return interaction.reply({content:"❌ Unknown team.",ephemeral:true});
       const selectedRole = guild.roles.cache.find(r => r.name === roleName && !r.managed);
