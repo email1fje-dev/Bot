@@ -1,5 +1,6 @@
 const extraFeatures = require("./extraFeatures");
 const music = require("./music");
+const tmps = require("./tmps");
 const { createClient } = require("@supabase/supabase-js");
 const ws = require("ws");
 
@@ -583,6 +584,7 @@ function compRolePanel(guild) {
 
 const commands = [
   ...music.commands.map(c => c),
+  ...tmps.commands.map(c => c),
   ...extraFeatures.commands.map(c => c),
   new SlashCommandBuilder()
     .setName("hidem")
@@ -835,6 +837,8 @@ client.on("inviteDelete", invite => {
 });
 
 client.on("interactionCreate", async interaction => {
+  const handledTmps = await tmps.handleInteraction(interaction);
+  if (handledTmps) return;
   const handledMusic = await music.handleInteraction(interaction);
   if (handledMusic) return;
   if (interaction.isChatInputCommand()) {
@@ -1662,6 +1666,8 @@ client.on("interactionCreate", async interaction => {
 const linkRegex = /(?:https?:\/\/|www\.|discord\.gg\/|discord(?:app)?\.com\/invite\/)[^\s<]+/i;
 
 client.on("messageCreate", async message => {
+  const handledTmpsMessage = await tmps.handleMessage(message);
+  if (handledTmpsMessage) return;
   if (!message.guild || message.author.bot) return;
 
   // Stage event quiz answers: only continuously eligible Stage participants can score.
