@@ -833,9 +833,9 @@ client.on("interactionCreate", async interaction => {
       if (!selectedRole) return interaction.reply({content:"❌ Team roles aren't set up yet. Ask an administrator to run /comp.",ephemeral:true});
       const allTeamRoleNames = Object.values(teamRoles);
       const otherRoles = guild.roles.cache.filter(r => allTeamRoleNames.includes(r.name) && r.name !== roleName && !r.managed);
-      const otherRoleTooHigh = otherRoles.some(r => r.position >= mePosition);
       const me = guild.members.me;
       const mePosition = me.roles.highest.position;
+      const otherRoleTooHigh = otherRoles.some(r => r.position >= mePosition);
       if (selectedRole.position >= mePosition || otherRoleTooHigh)
         return interaction.reply({content:"❌ Move my highest role above all three team roles so I can manage them.",ephemeral:true});
       const member = await guild.members.fetch(interaction.user.id);
