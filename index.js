@@ -780,7 +780,7 @@ const commands = [
     .addSubcommand(sub=>sub.setName("mystery").setDescription("Give a surprise prize to one eligible Stage member.")
       .addStringOption(o=>o.setName("prize").setDescription("Optional; defaults to a surprise bonus.").setMaxLength(200)))
     .addSubcommand(sub=>sub.setName("award").setDescription("Award a prize to a member currently eligible in the Stage.")
-      .addUserOption(o=>o.setName("user").setDescription("Prize winner.").setRequired(true))
+      .addUserOption(o=>o.setName("user").setDescription("Prize winner; required when awarding."))
       .addStringOption(o=>o.setName("prize").setDescription("Optional; defaults to a bonus shout-out.").setMaxLength(200)))
     .addSubcommand(sub=>sub.setName("status").setDescription("Show the Stage event leaderboard and eligible members."))
     .addSubcommand(sub=>sub.setName("end").setDescription("End the event and announce the points champion.")
@@ -1117,7 +1117,8 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({content:"✅ Winner"+(winners.length===1?"":"s")+" selected from eligible Stage members.",ephemeral:true});
       }
       if (sub === "award") {
-        const user=interaction.options.getUser("user",true),prize=interaction.options.getString("prize") || "Bonus winner shout-out 🎉";
+        const user=interaction.options.getUser("user"),prize=interaction.options.getString("prize") || "Bonus winner shout-out 🎉";
+        if (!user) return interaction.reply({content:"❌ Choose the member who should receive the prize.",ephemeral:true});
         if (!isEligibleNow(user.id)) return interaction.reply({content:"❌ That member must still be in the event Stage and must not have left it during this event.",ephemeral:true});
         await eventChannel.send({embeds:[new EmbedBuilder().setTitle("🏆 PRIZE AWARDED!").setDescription("Congratulations <@"+user.id+">!\n\n🎁 **Prize:** "+prize).setColor(0x57F287).setTimestamp()]});
         return interaction.reply({content:"✅ Prize announcement posted.",ephemeral:true});
