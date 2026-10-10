@@ -550,7 +550,7 @@ function selfRolePanel(guild) {
 }
 
 async function setupCompRoles(guild) {
-  const definitions = [{name:"Kylo Fan",color:0xE53935},{name:"Lumiz Fan",color:0x3498DB},{name:"Begginer Fan",color:0xF1C40F}];
+  const definitions = [{name:"Kylo Fan",color:0xE53935},{name:"Lumiz Fan",color:0x3498DB},{name:"Beginner Fan",color:0xF1C40F}];
   const me = guild.members.me;
   if (!me) throw new Error("Bot member is unavailable.");
   const roles = {};
@@ -569,11 +569,11 @@ function compRolePanel(guild) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("comp:kylo").setLabel("Kylo Fan").setEmoji("🔴").setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId("comp:lumiz").setLabel("Lumiz Fan").setEmoji("🔵").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("comp:begginer").setLabel("Begginer Fan").setEmoji("🟡").setStyle(ButtonStyle.Secondary)
+    new ButtonBuilder().setCustomId("comp:beginner").setLabel("Beginner Fan").setEmoji("🟡").setStyle(ButtonStyle.Secondary)
   );
   return {
     embed:new EmbedBuilder().setTitle("🏆 Which team are you on?")
-      .setDescription(["Choose your team below!","","🔴 **Kylo Fan**","🔵 **Lumiz Fan**","🟡 **Begginer Fan**","","You can switch teams any time."].join("\n"))
+      .setDescription(["Choose your team below!","","🔴 **Kylo Fan**","🔵 **Lumiz Fan**","🟡 **Beginner Fan**","","You can switch teams any time."].join("\n"))
       .setColor(0xE53935).setFooter({text:guild.name}),
     row
   };
@@ -754,7 +754,7 @@ const commands = [
       .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true))),
   new SlashCommandBuilder().setName("selfrole").setDescription("Create and configure the self roles."),
   new SlashCommandBuilder().setName("srm").setDescription("Send the self-role selection panel."),
-  new SlashCommandBuilder().setName("comp").setDescription("Create the Kylo Fan, Lumiz Fan, and Begginer Fan roles."),
+  new SlashCommandBuilder().setName("comp").setDescription("Create the Kylo Fan, Lumiz Fan, and Beginner Fan roles."),
   new SlashCommandBuilder().setName("compm").setDescription("Send the team selection panel."),
   new SlashCommandBuilder().setName("rolepanel").setDescription("Create a self-role selection panel.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
@@ -826,7 +826,7 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.isButton() && interaction.customId.startsWith("comp:")) {
       const teamKey = interaction.customId.split(":")[1];
-      const teamRoles = {kylo:"Kylo Fan",lumiz:"Lumiz Fan",begginer:"Begginer Fan"};
+      const teamRoles = {kylo:"Kylo Fan",lumiz:"Lumiz Fan",begginer:"Beginner Fan"};
       const roleName = teamRoles[teamKey];
       if (!roleName) return interaction.reply({content:"❌ Unknown team.",ephemeral:true});
       const selectedRole = guild.roles.cache.find(r => r.name === roleName && !r.managed);
@@ -983,7 +983,7 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "comp") {
       const roles = await setupCompRoles(guild);
-      return interaction.reply({content:"✅ Team roles are ready!\\n🔴 <@&"+roles["Kylo Fan"].id+">\\n🔵 <@&"+roles["Lumiz Fan"].id+">\\n🟡 <@&"+roles["Begginer Fan"].id+">\\n\\nNow use **/compm** to send the team selection panel.",ephemeral:true});
+      return interaction.reply({content:"✅ Team roles are ready!\\n🔴 <@&"+roles["Kylo Fan"].id+">\\n🔵 <@&"+roles["Lumiz Fan"].id+">\\n🟡 <@&"+roles["Beginner Fan"].id+">\\n\\nNow use **/compm** to send the team selection panel.",ephemeral:true});
     }
 
     if (interaction.commandName === "compm") {
