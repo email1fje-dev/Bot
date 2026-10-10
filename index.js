@@ -1115,10 +1115,33 @@ client.on("interactionCreate", async interaction => {
         const rows=[...event.participants.entries()].filter(([id,p])=>!p.disqualified && isEligibleNow(id)).sort((a,b)=>b[1].points-a[1].points);
         const top=rows.length?rows[0][1].points:0;
         const champions=rows.filter(([,p])=>p.points===top);
-        const desc=champions.length ? "👑 **Champion"+(champions.length===1?"":"s")+"**\n"+champions.map(([id])=>"<@"+id+"> — **"+top+" points**").join("\n")+(prize?"\n\n🎁 **Champion prize:** "+prize:"") : "No eligible members remained in the Stage at the end of the event.";
+        const medalRoles=[
+          {name:"🥇 Gold Champion",color:0xF1C40F},
+          {name:"🥈 Silver Champion",color:0xBDC3C7},
+          {name:"🥉 Bronze Champion",color:0xCD7F32}
+        ];
+        const medalResults=[];
+        const botMember=guild.members.me || await guild.members.fetchMe().catch(()=>null);
+        for(let index=0;index<Math.min(3,rows.length);index++){
+          const [userId,stats]=rows[index];
+          const spec=medalRoles[index];
+          let role=guild.roles.cache.find(r=>r.name===spec.name);
+          if(!role) role=await guild.roles.create({name:spec.name,color:spec.color,reason:"Stage Rank-Up Party prizes"}).catch(err=>{console.error("Could not create event prize role:",err.message);return null;});
+          if(!role || !botMember || role.position>=botMember.roles.highest.position){
+            medalResults.push("⚠️ <@"+userId+"> — "+spec.name+" (could not assign role; check Manage Roles permission and role hierarchy)");
+            continue;
+          }
+          const member=await guild.members.fetch(userId).catch(()=>null);
+          if(!member){medalResults.push("⚠️ <@"+userId+"> — "+spec.name+" (member could not be fetched)");continue;}
+          await member.roles.add(role,"Stage Rank-Up Party placement").catch(err=>console.error("Could not assign prize role:",err.message));
+          medalResults.push(spec.name+" → <@"+userId+"> (**"+stats.points+" points**)");
+        }
+        const desc=(rows.length ? "🏆 **Top 3 — roles assigned automatically**\n"+(medalResults.join("\n")||"No medal roles assigned.") : "No eligible members remained in the Stage at the end of the event.")
+          +(champions.length ? "\n\n👑 **Highest score:** "+champions.map(([id])=>"<@"+id+">").join(", ")+" — **"+top+" points**" : "")
+          +(prize?"\n\n🎁 **Champion prize:** "+prize:"");
         await eventChannel.send({embeds:[new EmbedBuilder().setTitle("🏁 STAGE EVENT ENDED").setDescription(desc).setColor(0xE53935).setTimestamp()]});
         stageEvents.delete(guild.id);
-        return interaction.reply({content:"✅ Event ended and the final result was announced.",ephemeral:true});
+        return interaction.reply({content:"✅ Event ended. Gold/Silver/Bronze roles were created if needed and assigned to the top 3 (check the announcement for any permission errors).",ephemeral:true});
       }
     }
 
