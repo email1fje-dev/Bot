@@ -728,7 +728,7 @@ const commands = [
     .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(false)),
   new SlashCommandBuilder().setName("giveaway").setDescription("Create a simple free-entry giveaway.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
-    .addStringOption(o=>o.setName("prize").setDescription("Prize description.").setRequired(true).setMaxLength(200))
+    .addStringOption(o=>o.setName("prize").setDescription("Optional; defaults to bonus points and shout-out.").setMaxLength(200))
     .addIntegerOption(o=>o.setName("minutes").setDescription("Duration in minutes.").setMinValue(1).setMaxValue(10080).setRequired(true))
     .addIntegerOption(o=>o.setName("winners").setDescription("Number of winners.").setMinValue(1).setMaxValue(20).setRequired(true)),
   new SlashCommandBuilder().setName("invite-leaderboard").setDescription("Show the server invite leaderboard."),
@@ -760,23 +760,26 @@ const commands = [
   new SlashCommandBuilder().setName("compm").setDescription("Send the team selection panel."),
   new SlashCommandBuilder().setName("stageevent").setDescription("Manage the Stage-only Rank-Up Party prize event.")
     .addSubcommand(sub=>sub.setName("start").setDescription("Start a Stage-only prize event.")
-      .addChannelOption(o=>o.setName("stage").setDescription("The Stage channel participants must stay in.").addChannelTypes(ChannelType.GuildStageVoice).setRequired(true))
+      .addChannelOption(o=>o.setName("stage").setDescription("Optional; defaults to the Stage you are in.").addChannelTypes(ChannelType.GuildStageVoice))
       .addChannelOption(o=>o.setName("announcements").setDescription("Text channel for event announcements.").addChannelTypes(ChannelType.GuildText)))
+    .addSubcommand(sub=>sub.setName("type").setDescription("Typing race; phrase and points have defaults.")
+      .addStringOption(o=>o.setName("phrase").setDescription("Optional phrase; random if blank.").setMaxLength(180))
+      .addIntegerOption(o=>o.setName("points").setDescription("Points (default 100).").setMinValue(1).setMaxValue(100)))
     .addSubcommand(sub=>sub.setName("quiz").setDescription("Post a quiz question; first correct eligible answer wins points.")
-      .addStringOption(o=>o.setName("question").setDescription("Question to ask.").setRequired(true).setMaxLength(800))
-      .addStringOption(o=>o.setName("answer").setDescription("Correct answer (kept private).").setRequired(true).setMaxLength(100))
+      .addStringOption(o=>o.setName("question").setDescription("Optional; random preset if blank.").setMaxLength(800))
+      .addStringOption(o=>o.setName("answer").setDescription("Optional; provide with a custom question.").setMaxLength(100))
       .addIntegerOption(o=>o.setName("points").setDescription("Points awarded for the correct answer.").setMinValue(1).setMaxValue(100)))
     .addSubcommand(sub=>sub.setName("challenge").setDescription("Announce a challenge and its prize.")
-      .addStringOption(o=>o.setName("description").setDescription("Challenge instructions.").setRequired(true).setMaxLength(1000))
-      .addStringOption(o=>o.setName("prize").setDescription("Prize for the challenge.").setRequired(true).setMaxLength(200)))
+      .addStringOption(o=>o.setName("description").setDescription("Optional; random preset challenge if blank.").setMaxLength(1000))
+      .addStringOption(o=>o.setName("prize").setDescription("Optional; defaults to bonus points and shout-out.").setMaxLength(200)))
     .addSubcommand(sub=>sub.setName("draw").setDescription("Randomly choose prize winner(s) from eligible Stage members.")
       .addStringOption(o=>o.setName("prize").setDescription("Prize description.").setRequired(true).setMaxLength(200))
       .addIntegerOption(o=>o.setName("winners").setDescription("Number of winners.").setMinValue(1).setMaxValue(10)))
     .addSubcommand(sub=>sub.setName("mystery").setDescription("Give a surprise prize to one eligible Stage member.")
-      .addStringOption(o=>o.setName("prize").setDescription("Surprise prize description.").setRequired(true).setMaxLength(200)))
+      .addStringOption(o=>o.setName("prize").setDescription("Optional; defaults to a surprise bonus.").setMaxLength(200)))
     .addSubcommand(sub=>sub.setName("award").setDescription("Award a prize to a member currently eligible in the Stage.")
       .addUserOption(o=>o.setName("user").setDescription("Prize winner.").setRequired(true))
-      .addStringOption(o=>o.setName("prize").setDescription("Prize description.").setRequired(true).setMaxLength(200)))
+      .addStringOption(o=>o.setName("prize").setDescription("Optional; defaults to a bonus shout-out.").setMaxLength(200)))
     .addSubcommand(sub=>sub.setName("status").setDescription("Show the Stage event leaderboard and eligible members."))
     .addSubcommand(sub=>sub.setName("end").setDescription("End the event and announce the points champion.")
       .addStringOption(o=>o.setName("prize").setDescription("Optional champion prize.").setMaxLength(200))),
@@ -1056,8 +1059,8 @@ client.on("interactionCreate", async interaction => {
       if (sub !== "status" && sub !== "end" && !canManage) return interaction.reply({content:"❌ Only Staff Manager or an Administrator can manage the Stage event.",ephemeral:true});
       if (sub === "start") {
         if (stageEvents.has(guild.id)) return interaction.reply({content:"❌ A Stage event is already active. Use /stageevent end first.",ephemeral:true});
-        const stage = interaction.options.getChannel("stage", true);
-        if (stage.type !== ChannelType.GuildStageVoice) return interaction.reply({content:"❌ Choose a Discord Stage channel.",ephemeral:true});
+        const stage = interaction.options.getChannel("stage") || interaction.member?.voice?.channel;
+        if (!stage || stage.type !== ChannelType.GuildStageVoice) return interaction.reply({content:"❌ Join the Stage first or select it in the command.",ephemeral:true});
         const announcementChannel = interaction.options.getChannel("announcements") || interaction.channel;
         const participants = new Map();
         for (const member of stage.members.values()) participants.set(member.id,{points:0,disqualified:false,joinedAt:Date.now()});
@@ -1073,20 +1076,33 @@ client.on("interactionCreate", async interaction => {
       if (!event) return interaction.reply({content:"❌ No active Stage event. Start one with /stageevent start.",ephemeral:true});
       if (sub === "quiz") {
         if (event.quiz) return interaction.reply({content:"❌ A quiz is already active. Wait for someone to answer or post a new quiz after it is solved.",ephemeral:true});
-        const question=interaction.options.getString("question",true);
-        const answer=interaction.options.getString("answer",true).trim().toLocaleLowerCase();
+        const presets=[{question:"What is the largest planet?",answer:"jupiter"},{question:"What is 9 x 8?",answer:"72"},{question:"What is the capital of Japan?",answer:"tokyo"},{question:"How many sides does a hexagon have?",answer:"6"},{question:"Which planet is called the Red Planet?",answer:"mars"}];
+        const q=interaction.options.getString("question"),a=interaction.options.getString("answer");
+        if (!!q !== !!a) return interaction.reply({content:"❌ Fill both question and answer, or leave both blank for a random preset.",ephemeral:true});
+        const preset=presets[Math.floor(Math.random()*presets.length)];
+        const question=q||preset.question;
+        const answer=(a||preset.answer).trim().toLocaleLowerCase();
         const points=interaction.options.getInteger("points") || 100;
         event.quiz={answer,points,question,startedAt:Date.now()};
         await eventChannel.send({embeds:[new EmbedBuilder().setTitle("🧠 LIVE STAGE QUIZ").setDescription(question+"\n\n💎 First correct answer from an eligible Stage member wins **"+points+" points**!").setColor(0x5865F2).setFooter({text:"Answers must be sent in this text channel while staying in the Stage."})]}).catch(()=>{});
         return interaction.reply({content:"✅ Quiz posted. The answer is private and the first eligible correct answer gets "+points+" points.",ephemeral:true});
       }
+      if (sub === "type") {
+        if (event.quiz) return interaction.reply({content:"❌ A quiz or typing race is already active.",ephemeral:true});
+        const phrases=["the stage belongs to the fastest typer","rank up party legends never quit","discord champions are built different","fast fingers win the bonus","teamwork makes this party legendary"];
+        const phrase=interaction.options.getString("phrase") || phrases[Math.floor(Math.random()*phrases.length)];
+        const points=interaction.options.getInteger("points") || 100;
+        event.quiz={answer:phrase.trim().toLocaleLowerCase(),points,question:"Typing race",mode:"type",startedAt:Date.now()};
+        await eventChannel.send({embeds:[new EmbedBuilder().setTitle("⌨️ STAGE TYPING RACE").setDescription("Type this exact phrase in chat:\n\n> **"+phrase+"**\n\nFirst eligible Stage member wins **"+points+" points**!").setColor(0xE67E22).setTimestamp()]});
+        return interaction.reply({content:"✅ Typing race started!",ephemeral:true});
+      }
       if (sub === "challenge") {
-        const description=interaction.options.getString("description",true),prize=interaction.options.getString("prize",true);
+        const description=interaction.options.getString("description") || "🎯 Quick challenge: be the first eligible person to type your favourite game in chat!"; const prize=interaction.options.getString("prize") || "100 event points + winner shout-out";
         await eventChannel.send({embeds:[new EmbedBuilder().setTitle("⚡ STAGE CHALLENGE").setDescription(description+"\n\n🎁 **Prize:** "+prize+"\n\nOnly eligible members currently in the Stage can win. Staff can select the winner with /stageevent award.").setColor(0xF1C40F).setTimestamp()]});
         return interaction.reply({content:"✅ Challenge announced.",ephemeral:true});
       }
       if (sub === "draw" || sub === "mystery") {
-        const prize=interaction.options.getString("prize",true);
+        const prize=interaction.options.getString("prize") || "100 event points + winner shout-out";
         const requested=sub==="mystery"?1:(interaction.options.getInteger("winners")||1);
         const pool=eligibleIds().sort(()=>Math.random()-0.5);
         const winners=pool.slice(0,Math.min(requested,pool.length));
@@ -1097,7 +1113,7 @@ client.on("interactionCreate", async interaction => {
         return interaction.reply({content:"✅ Winner"+(winners.length===1?"":"s")+" selected from eligible Stage members.",ephemeral:true});
       }
       if (sub === "award") {
-        const user=interaction.options.getUser("user",true),prize=interaction.options.getString("prize",true);
+        const user=interaction.options.getUser("user",true),prize=interaction.options.getString("prize") || "Bonus winner shout-out 🎉";
         if (!isEligibleNow(user.id)) return interaction.reply({content:"❌ That member must still be in the event Stage and must not have left it during this event.",ephemeral:true});
         await eventChannel.send({embeds:[new EmbedBuilder().setTitle("🏆 PRIZE AWARDED!").setDescription("Congratulations <@"+user.id+">!\n\n🎁 **Prize:** "+prize).setColor(0x57F287).setTimestamp()]});
         return interaction.reply({content:"✅ Prize announcement posted.",ephemeral:true});
@@ -1659,7 +1675,7 @@ client.on("messageCreate", async message => {
         const points = stageEvent.quiz.points;
         participant.points += points;
         stageEvent.quiz = null;
-        await message.channel.send({embeds:[new EmbedBuilder().setTitle("✅ CORRECT ANSWER!")
+        await message.channel.send({embeds:[new EmbedBuilder().setTitle(stageEvent.quiz?.mode==="type" ? "⌨️ TYPING RACE WON!" : "✅ CORRECT ANSWER!")
           .setDescription("<@"+message.author.id+"> was first with the correct answer and earned **"+points+" points**! 🎉")
           .setColor(0x57F287).setTimestamp()]}).catch(()=>{});
         return;
