@@ -757,6 +757,10 @@ const commands = [
   new SlashCommandBuilder().setName("srm").setDescription("Send the self-role selection panel."),
   new SlashCommandBuilder().setName("comp").setDescription("Create the Kylo Fan, Lumiz Fan, and Beginner Fan roles."),
   new SlashCommandBuilder().setName("compm").setDescription("Send the team selection panel."),
+  new SlashCommandBuilder().setName("rankupparty").setDescription("Create a Staff Manager rank-up party RSVP panel.")
+    .addStringOption(o=>o.setName("title").setDescription("Party title.").setMaxLength(100))
+    .addStringOption(o=>o.setName("description").setDescription("Party details.").setMaxLength(1000))
+    .addStringOption(o=>o.setName("time").setDescription("When the party starts (optional).").setMaxLength(100)),
   new SlashCommandBuilder().setName("rolepanel").setDescription("Create a self-role selection panel.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addRoleOption(o=>o.setName("role1").setDescription("Role 1.").setRequired(true))
