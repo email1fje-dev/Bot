@@ -549,6 +549,35 @@ function selfRolePanel(guild) {
   };
 }
 
+async function setupCompRoles(guild) {
+  const definitions = [{name:"Kylo Fan",color:0xE53935},{name:"Lumiz Fan",color:0x3498DB}];
+  const me = guild.members.me;
+  if (!me) throw new Error("Bot member is unavailable.");
+  const roles = {};
+  for (const def of definitions) {
+    let role = guild.roles.cache.find(r => r.name === def.name && !r.managed);
+    if (!role) role = await guild.roles.create({name:def.name,color:def.color,mentionable:true,reason:"Competition team roles setup"});
+    else await role.edit({color:def.color,mentionable:true,reason:"Competition team roles setup"});
+    roles[def.name] = role;
+  }
+  const blocked = definitions.filter(def => roles[def.name].position >= me.roles.highest.position);
+  if (blocked.length) throw new Error("Move the bot's highest role above: " + blocked.map(x => x.name).join(", "));
+  return roles;
+}
+
+function compRolePanel(guild) {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("comp:kylo").setLabel("Kylo Fan").setEmoji("🔴").setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId("comp:lumiz").setLabel("Lumiz Fan").setEmoji("🔵").setStyle(ButtonStyle.Primary)
+  );
+  return {
+    embed:new EmbedBuilder().setTitle("🏆 Which team are you on?")
+      .setDescription("Choose your team below!\\n\\n🔴 **Kylo Fan**\\n🔵 **Lumiz Fan**\\n\\nYou can switch teams any time.")
+      .setColor(0xE53935).setFooter({text:guild.name}),
+    row
+  };
+}
+
 const commands = [
   ...music.commands.map(c => c),
   ...extraFeatures.commands.map(c => c),
@@ -724,6 +753,8 @@ const commands = [
       .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true))),
   new SlashCommandBuilder().setName("selfrole").setDescription("Create and configure the self roles."),
   new SlashCommandBuilder().setName("srm").setDescription("Send the self-role selection panel."),
+  new SlashCommandBuilder().setName("comp").setDescription("Create the Kylo Fan and Lumiz Fan team roles."),
+  new SlashCommandBuilder().setName("compm").setDescription("Send the team selection panel."),
   new SlashCommandBuilder().setName("rolepanel").setDescription("Create a self-role selection panel.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addRoleOption(o=>o.setName("role1").setDescription("Role 1.").setRequired(true))
@@ -790,6 +821,25 @@ client.on("interactionCreate", async interaction => {
         }
       }
       return interaction.reply({content:"🎭 Your roles have been updated.",ephemeral:true});
+    }
+
+    if (interaction.isButton() && interaction.customId.startsWith("comp:")) {
+      const teamKey = interaction.customId.split(":")[1];
+      const teamRoles = {kylo:"Kylo Fan",lumiz:"Lumiz Fan"};
+      const roleName = teamRoles[teamKey];
+      if (!roleName) return interaction.reply({content:"❌ Unknown team.",ephemeral:true});
+      const selectedRole = guild.roles.cache.find(r => r.name === roleName && !r.managed);
+      if (!selectedRole) return interaction.reply({content:"❌ Team roles aren't set up yet. Ask an administrator to run /comp.",ephemeral:true});
+      const otherRole = guild.roles.cache.find(r => r.name === (teamKey === "kylo" ? "Lumiz Fan" : "Kylo Fan") && !r.managed);
+      const me = guild.members.me;
+      if (selectedRole.position >= me.roles.highest.position || (otherRole && otherRole.position >= me.roles.highest.position))
+        return interaction.reply({content:"❌ Move my highest role above both team roles so I can manage them.",ephemeral:true});
+      const member = await guild.members.fetch(interaction.user.id);
+      if (member.roles.cache.has(selectedRole.id))
+        return interaction.reply({content:"✅ You're already on **"+roleName+"**!",ephemeral:true});
+      if (otherRole && member.roles.cache.has(otherRole.id)) await member.roles.remove(otherRole,"Switched competition team");
+      await member.roles.add(selectedRole,"Selected competition team");
+      return interaction.reply({content:"🏆 You're now on team **"+roleName+"**!",ephemeral:true});
     }
 
     if (interaction.isButton() && interaction.customId.startsWith("selfrole:")) {
@@ -904,7 +954,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["selfrole","srm","hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot","modlog","history","unwarn","unban","slowmode","nick","softban","unmute","ticket-add","ticket-remove","ticket-rename","giveaway","role","rolepanel","dashboard"];
+  const adminCommands = ["selfrole","srm","comp","compm","hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot","modlog","history","unwarn","unban","slowmode","nick","softban","unmute","ticket-add","ticket-remove","ticket-rename","giveaway","role","rolepanel","dashboard"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -923,6 +973,18 @@ client.on("interactionCreate", async interaction => {
       const panel = selfRolePanel(guild);
       await interaction.channel.send({embeds:[panel.embed],components:[panel.row]});
       return interaction.reply({content:"✅ Self-role panel sent.",ephemeral:true});
+    }
+
+    if (interaction.commandName === "comp") {
+      const roles = await setupCompRoles(guild);
+      return interaction.reply({content:"✅ Team roles are ready!\\n🔴 <@&"+roles["Kylo Fan"].id+">\\n🔵 <@&"+roles["Lumiz Fan"].id+">\\n\\nNow use **/compm** to send the team selection panel.",ephemeral:true});
+    }
+
+    if (interaction.commandName === "compm") {
+      await setupCompRoles(guild);
+      const panel = compRolePanel(guild);
+      await interaction.channel.send({embeds:[panel.embed],components:[panel.row]});
+      return interaction.reply({content:"✅ Team selection panel sent.",ephemeral:true});
     }
 
     if (interaction.commandName === "ticketpanel") {
