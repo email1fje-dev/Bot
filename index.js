@@ -829,6 +829,25 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({content:"🎭 Your roles have been updated.",ephemeral:true});
     }
 
+    if (interaction.isButton() && interaction.customId.startsWith("rankparty:")) {
+      const party = rankUpParties.get(interaction.message.id);
+      if (!party) return interaction.reply({content:"❌ This party panel is no longer active. Ask staff to post a new one.",ephemeral:true});
+      const choice = interaction.customId.split(":")[1];
+      if (choice === "coming") party.responses.set(interaction.user.id,"coming");
+      else if (choice === "cant") party.responses.set(interaction.user.id,"cant");
+      else return interaction.reply({content:"❌ Unknown RSVP option.",ephemeral:true});
+      const coming = [...party.responses.values()].filter(v=>v==="coming").length;
+      const cant = [...party.responses.values()].filter(v=>v==="cant").length;
+      const embed = new EmbedBuilder()
+        .setTitle(party.title)
+        .setDescription(party.description + (party.time ? "\n\n🕒 **When:** "+party.time : "") + "\n\n🎉 **RSVPs**\n✅ Coming: **"+coming+"**\n❌ Can't come: **"+cant+"**")
+        .setColor(0xE53935)
+        .setFooter({text:"Staff Manager Rank-Up Party • Tap a button to update your RSVP"})
+        .setTimestamp();
+      await interaction.message.edit({embeds:[embed]});
+      return interaction.reply({content:choice==="coming" ? "🎉 You're on the list! See you at the party!" : "👌 RSVP updated — marked as unable to attend.",ephemeral:true});
+    }
+
     if (interaction.isButton() && interaction.customId.startsWith("comp:")) {
       const teamKey = interaction.customId.split(":")[1];
       const teamRoles = {kylo:"Kylo Fan",lumiz:"Lumiz Fan",beginner:"Beginner Fan"};
