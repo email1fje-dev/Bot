@@ -550,7 +550,7 @@ function selfRolePanel(guild) {
 }
 
 async function setupCompRoles(guild) {
-  const definitions = [{name:"Kylo Fan",color:0xE53935},{name:"Lumiz Fan",color:0x3498DB}];
+  const definitions = [{name:"Kylo Fan",color:0xE53935},{name:"Lumiz Fan",color:0x3498DB},{name:"Begginer Fan",color:0xF1C40F}];
   const me = guild.members.me;
   if (!me) throw new Error("Bot member is unavailable.");
   const roles = {};
@@ -568,11 +568,12 @@ async function setupCompRoles(guild) {
 function compRolePanel(guild) {
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("comp:kylo").setLabel("Kylo Fan").setEmoji("🔴").setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId("comp:lumiz").setLabel("Lumiz Fan").setEmoji("🔵").setStyle(ButtonStyle.Primary)
+    new ButtonBuilder().setCustomId("comp:lumiz").setLabel("Lumiz Fan").setEmoji("🔵").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("comp:begginer").setLabel("Begginer Fan").setEmoji("🟡").setStyle(ButtonStyle.Secondary)
   );
   return {
     embed:new EmbedBuilder().setTitle("🏆 Which team are you on?")
-      .setDescription(["Choose your team below!","","🔴 **Kylo Fan**","🔵 **Lumiz Fan**","","You can switch teams any time."].join("\n"))
+      .setDescription(["Choose your team below!","","🔴 **Kylo Fan**","🔵 **Lumiz Fan**","🟡 **Begginer Fan**","","You can switch teams any time."].join("\n"))
       .setColor(0xE53935).setFooter({text:guild.name}),
     row
   };
@@ -753,7 +754,7 @@ const commands = [
       .addRoleOption(o=>o.setName("role").setDescription("Role.").setRequired(true))),
   new SlashCommandBuilder().setName("selfrole").setDescription("Create and configure the self roles."),
   new SlashCommandBuilder().setName("srm").setDescription("Send the self-role selection panel."),
-  new SlashCommandBuilder().setName("comp").setDescription("Create the Kylo Fan and Lumiz Fan team roles."),
+  new SlashCommandBuilder().setName("comp").setDescription("Create the Kylo Fan, Lumiz Fan, and Begginer Fan roles."),
   new SlashCommandBuilder().setName("compm").setDescription("Send the team selection panel."),
   new SlashCommandBuilder().setName("rolepanel").setDescription("Create a self-role selection panel.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
@@ -825,19 +826,24 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.isButton() && interaction.customId.startsWith("comp:")) {
       const teamKey = interaction.customId.split(":")[1];
-      const teamRoles = {kylo:"Kylo Fan",lumiz:"Lumiz Fan"};
+      const teamRoles = {kylo:"Kylo Fan",lumiz:"Lumiz Fan",begginer:"Begginer Fan"};
       const roleName = teamRoles[teamKey];
       if (!roleName) return interaction.reply({content:"❌ Unknown team.",ephemeral:true});
       const selectedRole = guild.roles.cache.find(r => r.name === roleName && !r.managed);
       if (!selectedRole) return interaction.reply({content:"❌ Team roles aren't set up yet. Ask an administrator to run /comp.",ephemeral:true});
-      const otherRole = guild.roles.cache.find(r => r.name === (teamKey === "kylo" ? "Lumiz Fan" : "Kylo Fan") && !r.managed);
+      const allTeamRoleNames = Object.values(teamRoles);
+      const otherRoles = guild.roles.cache.filter(r => allTeamRoleNames.includes(r.name) && r.name !== roleName && !r.managed);
+      const otherRoleTooHigh = otherRoles.some(r => r.position >= mePosition);
       const me = guild.members.me;
-      if (selectedRole.position >= me.roles.highest.position || (otherRole && otherRole.position >= me.roles.highest.position))
-        return interaction.reply({content:"❌ Move my highest role above both team roles so I can manage them.",ephemeral:true});
+      const mePosition = me.roles.highest.position;
+      if (selectedRole.position >= mePosition || otherRoleTooHigh)
+        return interaction.reply({content:"❌ Move my highest role above all three team roles so I can manage them.",ephemeral:true});
       const member = await guild.members.fetch(interaction.user.id);
       if (member.roles.cache.has(selectedRole.id))
         return interaction.reply({content:"✅ You're already on **"+roleName+"**!",ephemeral:true});
-      if (otherRole && member.roles.cache.has(otherRole.id)) await member.roles.remove(otherRole,"Switched competition team");
+      for (const otherRole of otherRoles.values()) {
+        if (member.roles.cache.has(otherRole.id)) await member.roles.remove(otherRole,"Switched competition team");
+      }
       await member.roles.add(selectedRole,"Selected competition team");
       return interaction.reply({content:"🏆 You're now on team **"+roleName+"**!",ephemeral:true});
     }
@@ -977,7 +983,7 @@ client.on("interactionCreate", async interaction => {
 
     if (interaction.commandName === "comp") {
       const roles = await setupCompRoles(guild);
-      return interaction.reply({content:"✅ Team roles are ready!\\n🔴 <@&"+roles["Kylo Fan"].id+">\\n🔵 <@&"+roles["Lumiz Fan"].id+">\\n\\nNow use **/compm** to send the team selection panel.",ephemeral:true});
+      return interaction.reply({content:"✅ Team roles are ready!\\n🔴 <@&"+roles["Kylo Fan"].id+">\\n🔵 <@&"+roles["Lumiz Fan"].id+">\\n🟡 <@&"+roles["Begginer Fan"].id+">\\n\\nNow use **/compm** to send the team selection panel.",ephemeral:true});
     }
 
     if (interaction.commandName === "compm") {
