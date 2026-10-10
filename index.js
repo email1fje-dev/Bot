@@ -7,6 +7,7 @@ const ws = require("ws");
 const {
   Client,
   GatewayIntentBits,
+  Partials,
   REST,
   Routes,
   SlashCommandBuilder,
@@ -39,10 +40,12 @@ if (!TOKEN || !CLIENT_ID) {
 }
 
 const client = new Client({
+  partials: [Partials.Channel],
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildModeration,
     GatewayIntentBits.GuildVoiceStates
