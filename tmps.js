@@ -85,10 +85,20 @@ async function sendDM(user, payload) {
 }
 async function askQuestion(user, session) {
   const q = QUESTIONS[session.index];
-  return user.send({embeds:[new EmbedBuilder().setColor(0x5865F2).setTitle("📝 Trial Moderator Application")
+  if (!q) throw new Error("TMPS question index out of range: " + session.index);
+  const payload = {embeds:[new EmbedBuilder().setColor(0x5865F2).setTitle("📝 Trial Moderator Application")
     .setDescription("**Question " + (session.index + 1) + " of " + QUESTIONS.length + " — " + q[0] + "**\n\n" + q[1] +
       "\n\nReply with your answer below.\n\nType **skip** to skip · **back** to go back · **cancel** to cancel")
-    .setFooter({text:"Your answers are sent privately to the server's authorized review team."})]});
+    .setFooter({text:"Your answers are sent privately to the server's authorized review team."})]};
+  try {
+    return await user.send(payload);
+  } catch (error) {
+    console.error("TMPS failed to send question " + (session.index + 1) + " to " + user.id + ":", error);
+    // A plain-text fallback avoids getting the whole application stuck if an embed is rejected.
+    const fallback = "**Trial Moderator Application — Question " + (session.index + 1) + " of " + QUESTIONS.length + " (" + q[0] + ")**\n\n" +
+      q[1] + "\n\nReply with your answer. Type skip, back, or cancel.";
+    return await user.send({content:fallback});
+  }
 }
 async function createReviewChannel(guild, reviewRoleId) {
   const me = guild.members.me || await guild.members.fetchMe();
@@ -228,7 +238,12 @@ async function handleMessage(message) {
   if (lower==="back") {
     if (session.index===0) { await message.reply("You're already at the first question.").catch(()=>{}); return true; }
     session.index--; session.answers.length=session.index;
-    await askQuestion(message.author,session).catch(()=>{}); return true;
+    try { await askQuestion(message.author,session); }
+    catch (error) {
+      console.error("TMPS could not resend previous question:", error);
+      await message.reply("⚠️ I couldn't send the question again. Please check that your DMs with me are open, then try replying **back** once more.").catch(()=>{});
+    }
+    return true;
   }
   if (lower==="skip") session.answers[session.index]="*Skipped*";
   else {
@@ -237,7 +252,16 @@ async function handleMessage(message) {
     session.answers[session.index]=text;
   }
   session.index++;
-  if (session.index<QUESTIONS.length) { await askQuestion(message.author,session).catch(()=>{}); return true; }
+  if (session.index<QUESTIONS.length) {
+    try { await askQuestion(message.author,session); }
+    catch (error) {
+      console.error("TMPS could not send next question:", error);
+      session.index--;
+      session.answers.length=session.index;
+      await message.reply("⚠️ I couldn't send the next question. Your answer wasn't lost; please try sending it again in a moment, or check that your DMs with me are open.").catch(()=>{});
+    }
+    return true;
+  }
   const guild=message.client.guilds.cache.get(session.guildId), channel=guild && guild.channels.cache.get(session.reviewChannelId);
   if (!guild || !channel || !channel.isTextBased()) {
     sessions.delete(key); await message.reply("❌ I couldn't submit your application because the review channel is unavailable. Please contact staff.").catch(()=>{}); return true;
