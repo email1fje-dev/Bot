@@ -61,7 +61,7 @@ function reviewPayload(app) {
   if (app.avatar) embed.setThumbnail(app.avatar);
   QUESTIONS.forEach((q, i) => {
     const answer = app.answers[i] || "*Skipped*";
-    embed.addFields({name:(i + 1) + ". " + q[0], value:answer.length > 1000 ? answer.slice(0,997) + "..." : answer});
+    embed.addFields({name:(i + 1) + ". " + q[0], value:answer.length > 450 ? answer.slice(0,447) + "..." : answer});
   });
   const scoreEntries = Object.entries(app.scores || {});
   if (scoreEntries.length) embed.addFields({name:"📊 Staff evaluations",value:scoreEntries.map(x => "<@" + x[0] + "> — **" + x[1] + "/5**").join("\n").slice(0,1000)});
