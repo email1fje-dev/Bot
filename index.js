@@ -1688,8 +1688,15 @@ client.on("interactionCreate", async interaction => {
 const linkRegex = /(?:https?:\/\/|www\.|discord\.gg\/|discord(?:app)?\.com\/invite\/)[^\s<]+/i;
 
 client.on("messageCreate", async message => {
-  const handledTmpsMessage = await tmps.handleMessage(message);
-  if (handledTmpsMessage) return;
+  try {
+    const handledTmpsMessage = await tmps.handleMessage(message);
+    if (handledTmpsMessage) return;
+  } catch (error) {
+    console.error("[TMPS] message handler crashed:", error);
+    if (message && !message.author?.bot) {
+      await message.reply("⚠️ The application bot hit an internal error while processing that reply. Your message was received; please try sending it once more, and staff can check the bot logs.").catch(()=>{});
+    }
+  }
   if (!message.guild || message.author.bot) return;
 
   // Stage event quiz answers: only continuously eligible Stage participants can score.
