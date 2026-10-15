@@ -184,6 +184,8 @@ async function saveGuildSettings(guildId) {
   if (error) console.error("Failed to save guild settings:", error.message);
 }
 
+global.__botDashboardApi = { getSettings, saveGuildSettings };
+
 async function saveLevelData(guildId, userId) {
   if (!db) return;
   const data = getLevelInfo(guildId, userId);
