@@ -101,7 +101,7 @@ function attachDashboard(client) {
       const state=crypto.randomBytes(24).toString("hex");
       const nonce=crypto.randomBytes(24).toString("hex");
       const id=crypto.randomBytes(24).toString("hex");
-      sessions.set(id,{state,nonce,csrf:crypto.randomBytes(24).toString("hex"),expires:Date.now()+10*60*1000,oauthPending:true});
+      sessions.set(id,{id,state,nonce,csrf:crypto.randomBytes(24).toString("hex"),expires:Date.now()+10*60*1000,oauthPending:true});
       res.writeHead(302,{location:"https://discord.com/oauth2/authorize?"+new URLSearchParams({client_id:CLIENT_ID,response_type:"code",redirect_uri:REDIRECT_URI,scope:"identify guilds",state}),"set-cookie":"botdash="+encodeURIComponent(id+"."+signed(id))+"; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600"});
       res.end(); return;
     }
@@ -116,7 +116,7 @@ function attachDashboard(client) {
         const guildResponse=await fetch("https://discord.com/api/users/@me/guilds",{headers:{authorization:"Bearer "+token.access_token}});
         const userGuilds=await guildResponse.json();if(!guildResponse.ok)throw new Error("Discord server lookup failed");
         s.user=user;s.userGuilds=userGuilds;s.oauthPending=false;s.expires=Date.now()+8*60*60*1000;s.csrf=crypto.randomBytes(24).toString("hex");
-        res.writeHead(302,{"location":"/","set-cookie":"botdash="+encodeURIComponent(cookieValue(req,"botdash"))+"; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=28800"});res.end();
+        res.writeHead(302,{"location":"/","set-cookie":"botdash="+encodeURIComponent(s.id+"."+signed(s.id))+"; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=28800"});res.end();
       } catch(e) { console.error("[dashboard] OAuth error:",e.message);res.writeHead(502,{"content-type":"text/plain; charset=utf-8"});res.end("Discord login failed. Please return to the dashboard and try again."); }
       return;
     }
