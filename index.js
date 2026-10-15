@@ -1,6 +1,7 @@
 const extraFeatures = require("./extraFeatures");
 const music = require("./music");
 const tmps = require("./tmps");
+const { attachDashboard } = require("./dashboard");
 const { createClient } = require("@supabase/supabase-js");
 const ws = require("ws");
 
@@ -53,6 +54,7 @@ const client = new Client({
 });
 
 music.attach(client);
+attachDashboard(client);
 
 // Per-server runtime settings. Defaults are safe and require no hard-coded server name.
 const settings = new Map();
