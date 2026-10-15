@@ -105,6 +105,59 @@ function attachDashboard(client) {
       const guildMatch=url.pathname.match(/^\/api\/guild\/([0-9]{17,20})$/);
       if(req.method==="GET"&&guildMatch){const g=client.guilds.cache.get(guildMatch[1]);if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});await g.channels.fetch().catch(()=>{});await g.roles.fetch().catch(()=>{});send(res,200,{memberCount:g.memberCount,channels:g.channels.cache.filter(c=>(c.type===0||c.type===5)&&c.viewable&&c.permissionsFor(g.members.me)?.has("SendMessages")).map(c=>({id:c.id,name:c.name})).sort((a,b)=>a.name.localeCompare(b.name)),roles:g.roles.cache.map(r=>({id:r.id,name:r.name}))});return;}
       if(req.method==="POST"&&url.pathname==="/api/hidem"){let b;try{b=await body(req)}catch(e){return send(res,400,{error:e.message||"درخواست نامعتبر است."})}if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});const g=client.guilds.cache.get(String(b.guildId));if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});const member=await g.members.fetch(s.user.id).catch(()=>null);if(!member||!member.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور می‌تواند این کار را انجام دهد."});const ch=g.channels.cache.get(String(b.channelId));if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"کانال مقصد معتبر نیست."});if(!ch.permissionsFor(g.members.me)?.has("SendMessages"))return send(res,403,{error:"ربات اجازه ارسال پیام در این کانال را ندارد."});const message=String(b.message||"").trim();if(!message||message.length>2000)return send(res,400,{error:"متن پیام باید بین 1 تا 2000 کاراکتر باشد."});try{await ch.send({content:message,allowedMentions:{parse:[]}});send(res,200,{ok:true,message:"پیام با موفقیت ارسال شد."});}catch(e){console.error("[dashboard] Hidem send failed:",e.message);send(res,500,{error:"ارسال پیام ناموفق بود؛ دسترسی‌های کانال را بررسی کن."});}return;}
+
+      if(req.method==="POST"&&url.pathname==="/api/moderation"){
+        let b;try{b=await body(req)}catch{return send(res,400,{error:"درخواست نامعتبر است."})}
+        if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});
+        const g=client.guilds.cache.get(String(b.guildId));
+        if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
+        const actor=await g.members.fetch(s.user.id).catch(()=>null), me=g.members.me;
+        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        const uid=String(b.userId||""), action=String(b.action||""), reason=String(b.reason||"از پنل مدیریت").slice(0,400);
+        if(!/^\d{17,20}$/.test(uid))return send(res,400,{error:"شناسه کاربر معتبر نیست."});
+        try{
+          if(action==="unban"){if(!me.permissions.has("BanMembers"))return send(res,403,{error:"ربات مجوز Unban ندارد."});await g.bans.remove(uid,reason);return send(res,200,{message:"Ban کاربر برداشته شد."})}
+          const m=await g.members.fetch(uid).catch(()=>null);if(!m)return send(res,404,{error:"عضو پیدا نشد."});
+          if(m.id===s.user.id||m.id===client.user.id)return send(res,400,{error:"این اقدام روی خودت یا ربات مجاز نیست."});
+          if(m.roles.highest.position>=actor.roles.highest.position&&!actor.permissions.has("Administrator"))return send(res,403,{error:"نقش عضو بالاتر یا هم‌سطح است."});
+          if(action==="timeout"){if(!me.permissions.has("ModerateMembers"))return send(res,403,{error:"ربات مجوز Timeout ندارد."});await m.timeout(Math.max(1,Math.min(40320,Number(b.minutes)||10))*60000,reason);return send(res,200,{message:"Timeout اعمال شد."})}
+          if(action==="kick"){if(!me.permissions.has("KickMembers"))return send(res,403,{error:"ربات مجوز Kick ندارد."});await m.kick(reason);return send(res,200,{message:"عضو اخراج شد."})}
+          if(action==="ban"){if(!me.permissions.has("BanMembers"))return send(res,403,{error:"ربات مجوز Ban ندارد."});await m.ban({reason});return send(res,200,{message:"عضو Ban شد."})}
+          return send(res,400,{error:"اقدام ناشناخته است."})
+        }catch(e){console.error("[dashboard] moderation:",e.message);return send(res,500,{error:"اقدام ناموفق بود؛ مجوزها و ترتیب نقش‌ها را بررسی کن."})}
+      }
+      if(req.method==="POST"&&url.pathname==="/api/embed"){
+        let b;try{b=await body(req)}catch{return send(res,400,{error:"درخواست نامعتبر است."})}
+        if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});
+        const g=client.guilds.cache.get(String(b.guildId));
+        if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
+        const actor=await g.members.fetch(s.user.id).catch(()=>null),ch=g.channels.cache.get(String(b.channelId||""));
+        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"کانال مقصد معتبر نیست."});
+        if(!ch.permissionsFor(g.members.me)?.has("SendMessages")||!ch.permissionsFor(g.members.me)?.has("EmbedLinks"))return send(res,403,{error:"بات به مجوز Send Messages و Embed Links نیاز دارد."});
+        const description=String(b.description||"").trim().slice(0,4000),title=String(b.title||"").trim().slice(0,256),footer=String(b.footer||"").trim().slice(0,2048),hex=String(b.color||"45e0a0").replace(/^#/,"");
+        if(!description)return send(res,400,{error:"توضیحات الزامی است."});if(!/^[0-9a-fA-F]{6}$/.test(hex))return send(res,400,{error:"رنگ HEX نامعتبر است."});
+        const {EmbedBuilder}=require("discord.js"),embed=new EmbedBuilder().setDescription(description).setColor(parseInt(hex,16)).setTimestamp();
+        if(title)embed.setTitle(title);if(footer)embed.setFooter({text:footer});
+        try{await ch.send({embeds:[embed],allowedMentions:{parse:[]}});return send(res,200,{message:"Embed با موفقیت ارسال شد."})}catch{return send(res,500,{error:"ارسال Embed ناموفق بود."})}
+      }
+      if(req.method==="POST"&&url.pathname==="/api/community-panel"){
+        let b;try{b=await body(req)}catch{return send(res,400,{error:"درخواست نامعتبر است."})}
+        if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});
+        const g=client.guilds.cache.get(String(b.guildId));
+        if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
+        const actor=await g.members.fetch(s.user.id).catch(()=>null),ch=g.channels.cache.get(String(b.channelId||""));
+        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"کانال مقصد معتبر نیست."});
+        if(!ch.permissionsFor(g.members.me)?.has("SendMessages")||!ch.permissionsFor(g.members.me)?.has("EmbedLinks"))return send(res,403,{error:"بات به مجوز ارسال پیام و Embed نیاز دارد."});
+        const title=String(b.title||"").trim().slice(0,256),description=String(b.description||"").trim().slice(0,3500),kind=String(b.kind||"ticket");
+        if(!title||!description)return send(res,400,{error:"عنوان و توضیحات الزامی است."});
+        const {EmbedBuilder}=require("discord.js");
+        const note=kind==="ticket"?"برای باز کردن تیکت، از دستور /ticket موجود بات استفاده کن.":"این پیام راهنمای انتخاب نقش است؛ اعطای خودکار نقش هنوز از این پنل فعال نشده است.";
+        const embed=new EmbedBuilder().setTitle(title).setDescription(description+"\n\n"+note).setColor(0x45e0a0).setTimestamp();
+        try{await ch.send({embeds:[embed],allowedMentions:{parse:[]}});return send(res,200,{message:kind==="ticket"?"پنل راهنمای تیکت ارسال شد.":"پنل راهنمای نقش ارسال شد؛ برای اعطای خودکار نقش باید منطق دکمه‌ها به بات متصل شود."})}catch{return send(res,500,{error:"ارسال پنل ناموفق بود."})}
+      }
+
       return send(res,404,{error:"مسیر پیدا نشد."});
     }
     res.writeHead(404,{"content-type":"text/plain"});res.end("Not found");
