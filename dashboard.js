@@ -57,13 +57,13 @@ function attachDashboard(client) {
     return data ? JSON.parse(data) : {};
   }
   function adminGuilds(userGuilds, userId) {
+    // Discord OAuth returns the user's effective guild permissions. Do not rely on
+    // the bot's member cache here: it often does not contain the dashboard user,
+    // which incorrectly made every eligible server disappear.
     return userGuilds.filter(g => {
       const perms = BigInt(g.permissions || "0");
       if (!(perms & 8n) && !(perms & 32n)) return false;
-      const live = client.guilds.cache.get(g.id);
-      if (!live) return false;
-      const member = live.members.cache.get(userId);
-      return !!(member && member.permissions.has("Administrator"));
+      return client.guilds.cache.has(g.id);
     }).map(g => ({id:g.id,name:g.name,icon:g.icon ? "https://cdn.discordapp.com/icons/"+g.id+"/"+g.icon+".png" : null}));
   }
   const server = http.createServer(async (req,res) => {
