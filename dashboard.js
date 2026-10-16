@@ -244,7 +244,7 @@ function attachDashboard(client) {
         if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور یا مالک پنل می‌تواند رول بدهد."});
         if(!me?.permissions.has("ManageRoles"))return send(res,403,{error:"بات مجوز Manage Roles ندارد."});
         const uid=String(b.userId||""),rid=String(b.roleId||""),action=String(b.action||"add");
-        if(!/^\\d{17,20}$/.test(uid))return send(res,400,{error:"شناسه عضو معتبر نیست."});
+        if(!/^\d{17,20}$/.test(uid))return send(res,400,{error:"شناسه عضو معتبر نیست."});
         if(!["add","remove"].includes(action))return send(res,400,{error:"عملیات رول معتبر نیست."});
         const role=g.roles.cache.get(rid);
         if(!role)return send(res,404,{error:"رول پیدا نشد."});
