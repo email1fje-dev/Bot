@@ -144,6 +144,50 @@ function attachDashboard(client) {
       if (req.method==="GET" && url.pathname==="/api/guilds") { send(res,200,adminGuilds(s.userGuilds,s.user.id));return; }
       const guildMatch=url.pathname.match(/^\/api\/guild\/([0-9]{17,20})$/);
       if(req.method==="GET"&&guildMatch){const g=client.guilds.cache.get(guildMatch[1]);if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});await g.channels.fetch().catch(()=>{});await g.roles.fetch().catch(()=>{});const me=await g.members.fetchMe().catch(()=>g.members.me);const channels=g.channels.cache.filter(c=>(c.type===0||c.type===5)&&c.viewable&&(!me||c.permissionsFor(me)?.has("SendMessages"))).map(c=>({id:c.id,name:c.name})).sort((a,b)=>a.name.localeCompare(b.name));send(res,200,{memberCount:g.memberCount,channels,roles:g.roles.cache.map(r=>({id:r.id,name:r.name}))});return;}
+      if(req.method==="GET"&&url.pathname==="/api/community-clash"){
+        const gid=String(url.searchParams.get("guildId")||""),g=client.guilds.cache.get(gid);
+        if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
+        const actor=await g.members.fetch(s.user.id).catch(()=>null);
+        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور می‌تواند ایونت را مدیریت کند."});
+        return send(res,200,{event:client.__communityClash?client.__communityClash.get(gid):null});
+      }
+      if(req.method==="POST"&&url.pathname.startsWith("/api/community-clash/")){
+        let b;try{b=await body(req)}catch{return send(res,400,{error:"درخواست نامعتبر است."})}
+        if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});
+        const gid=String(b.guildId||""),g=client.guilds.cache.get(gid);
+        if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
+        const actor=await g.members.fetch(s.user.id).catch(()=>null);
+        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        const cc=client.__communityClash;if(!cc)return send(res,503,{error:"موتور Community Clash هنوز آماده نیست."});
+        try{
+          if(url.pathname==="/api/community-clash/create"){
+            const title=String(b.title||"").trim(),description=String(b.description||"").trim(),question=String(b.question||"").trim(),mission=String(b.mission||"").trim();
+            const endsAt=Number(b.endsAt),roleDays=Number(b.roleDays),winnerCount=Number(b.winnerCount);
+            if(!title||!description||!question||!mission)return send(res,400,{error:"همه فیلدهای متنی الزامی هستند."});
+            if(!Number.isFinite(endsAt)||endsAt<=Date.now())return send(res,400,{error:"زمان پایان باید در آینده باشد."});
+            if(!Number.isInteger(roleDays)||roleDays<1||roleDays>90||!Number.isInteger(winnerCount)||winnerCount<1||winnerCount>3)return send(res,400,{error:"تنظیم تعداد برنده یا مدت رول معتبر نیست."});
+            const event=await cc.create(gid,{title,description,question,mission,endsAt,roleDays,winnerCount,createdBy:s.user.id});
+            return send(res,200,{ok:true,event,message:"ایونت ساخته شد؛ چنل‌ها، رول‌ها و پیام‌ها ایجاد شدند."});
+          }
+          if(url.pathname==="/api/community-clash/action"){
+            const action=String(b.action||"");let event;
+            if(action==="start")event=await cc.start(gid,s.user.id);
+            else if(action==="pause")event=await cc.pause(gid,s.user.id);
+            else if(action==="resume")event=await cc.resume(gid,s.user.id);
+            else if(action==="end")event=await cc.end(gid,s.user.id);
+            else return send(res,400,{error:"عملیات نامعتبر است."});
+            return send(res,200,{ok:true,event,message:"عملیات ایونت انجام شد."});
+          }
+          if(url.pathname==="/api/community-clash/review"){
+            const sid=String(b.submissionId||""),action=String(b.action||""),points=Number(b.points||0);
+            if(!sid||!["approve","reject"].includes(action))return send(res,400,{error:"اطلاعات بررسی معتبر نیست."});
+            if(action==="approve"&&(!Number.isInteger(points)||points<0||points>20))return send(res,400,{error:"امتیاز باید بین ۰ تا ۲۰ باشد."});
+            const event=await cc.review(gid,sid,action,points,s.user.id,String(b.reason||""));
+            return send(res,200,{ok:true,event,message:"بررسی ذخیره شد."});
+          }
+          return send(res,404,{error:"مسیر Community Clash پیدا نشد."});
+        }catch(err){console.error("[dashboard] Community Clash:",err.message);return send(res,400,{error:String(err.message||"عملیات ناموفق بود.").slice(0,400)});}
+      }
       if(req.method==="POST"&&url.pathname==="/api/hidem"){let b;try{b=await body(req)}catch(e){return send(res,400,{error:e.message||"درخواست نامعتبر است."})}if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});const g=client.guilds.cache.get(String(b.guildId));if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});const member=await g.members.fetch(s.user.id).catch(()=>null);if(!member||!member.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور می‌تواند این کار را انجام دهد."});const ch=g.channels.cache.get(String(b.channelId));if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"کانال مقصد معتبر نیست."});if(!ch.permissionsFor(g.members.me)?.has("SendMessages"))return send(res,403,{error:"ربات اجازه ارسال پیام در این کانال را ندارد."});const message=String(b.message||"").trim();if(!message||message.length>2000)return send(res,400,{error:"متن پیام باید بین 1 تا 2000 کاراکتر باشد."});try{await ch.send({content:message,allowedMentions:{parse:[]}});send(res,200,{ok:true,message:"پیام با موفقیت ارسال شد."});}catch(e){console.error("[dashboard] Hidem send failed:",e.message);send(res,500,{error:"ارسال پیام ناموفق بود؛ دسترسی‌های کانال را بررسی کن."});}return;}
 
       if(req.method==="POST"&&url.pathname==="/api/moderation"){
