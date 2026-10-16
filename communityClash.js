@@ -98,7 +98,7 @@ function expireRoles(client,db,e){
     const key=e.guildId+":"+x.userId+":"+x.roleId;
     const old=timers.get("expiry:"+key);if(old)clearTimeout(old);
     const remove=async()=>{
-      if(Date.now()<Number(x.expiresAt)){expireRoles(client,db,{...e,roleExpiries:[x]});return;}
+      if(Date.now()<Number(x.expiresAt)){const wait=Number(x.expiresAt)-Date.now();timers.set("expiry:"+key,setTimeout(()=>remove().catch(err=>console.error("[Community Clash] role expiry:",err.message)),Math.min(wait,2147480000));return;}
       const g=client.guilds.cache.get(String(e.guildId));
       if(g){const m=await g.members.fetch(x.userId).catch(()=>null);if(m&&m.roles.cache.has(x.roleId))await m.roles.remove(x.roleId,"Community Clash reward expired").catch(()=>{});}
       x.removedAt=Date.now();log(e,"reward-role-expired",x.userId,x.roleId);await save(db,e);
