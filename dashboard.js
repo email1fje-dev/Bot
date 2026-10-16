@@ -66,7 +66,8 @@ function attachDashboard(client) {
     const raw = cookieValue(req, "botdash");
     if (!raw) return null;
     const [id, sig] = raw.split(".");
-    const expected = id ? signed(id) : "";\n    if (!id || !sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+    const expected = id ? signed(id) : "";
+    if (!id || !sig || sig.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
     const s = sessions.get(id);
     if (!s || s.expires < Date.now()) { sessions.delete(id); return null; }
     return s;
