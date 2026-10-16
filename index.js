@@ -2,6 +2,7 @@ const extraFeatures = require("./extraFeatures");
 const music = require("./music");
 const tmps = require("./tmps");
 const { attachDashboard } = require("./dashboard");
+const communityClash = require("./communityClash");
 const { createClient } = require("@supabase/supabase-js");
 const ws = require("ws");
 
@@ -54,7 +55,7 @@ const client = new Client({
 });
 
 music.attach(client);
-attachDashboard(client);
+attachDashboard(client, db);
 
 // Per-server runtime settings. Defaults are safe and require no hard-coded server name.
 const settings = new Map();
@@ -2032,5 +2033,6 @@ client.on("threadDelete", async thread => {
 });
 
 extraFeatures.attach(client, {client, statBucket, getLevelInfo, saveLevelData, applyLevelRole});
+communityClash.attach(client, db);
 client.on("error", console.error);
 client.login(TOKEN);
