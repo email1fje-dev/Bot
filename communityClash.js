@@ -122,6 +122,7 @@ async function finish(client,db,gid,uid,automatic=false){
   }
   await save(db,e);if(g)await refreshReg(g,e);expireRoles(client,db,e);return summary(e);
 }
+async function cancel(client,db,gid,uid){const e=get(gid);if(!e||!["setup","active","paused"].includes(e.status))throw new Error("ایونت قابل لغو پیدا نشد.");e.status="cancelled";e.endedAt=Date.now();log(e,"cancelled",uid);clearTimeout(timers.get(String(gid)));timers.delete(String(gid));await save(db,e);const g=client.guilds.cache.get(String(gid));if(g){await refreshReg(g,e);const ch=g.channels.cache.get(e.channels.announcements);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xe74c3c).setTitle("Community Clash لغو شد").setDescription("این ایونت توسط مدیریت لغو شده است.")],allowedMentions:{parse:[]}});}return summary(e);}
 function expireRoles(client,db,e){
   for(const x of e.roleExpiries||[]){
     if(x.removedAt)continue;
@@ -191,7 +192,7 @@ async function handle(i,client,db){
   return false;
 }
 function attach(client,db){
-  client.__communityClash={get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(client,db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(client,db,g,stage,u),end:(g,u)=>finish(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
+  client.__communityClash={get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(client,db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(client,db,g,stage,u),end:(g,u)=>finish(client,db,g,u),cancel:(g,u)=>cancel(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
   client.on("interactionCreate",async i=>{try{if(await handle(i,client,db))return;}catch(e){console.error("[Community Clash]",e);if(i.isRepliable()&&!i.replied&&!i.deferred)await i.reply({content:"خطای ایونت: "+String(e.message||"خطا").slice(0,250),ephemeral:true}).catch(()=>{});}});
   load(db).then(()=>{for(const e of events.values()){if(e.status==="active"){timer(client,db,e);scheduleReminders(client,db,e);}if(e.status==="ended")expireRoles(client,db,e);}}).catch(e=>console.error("[Community Clash] load:",e.message));
 }
