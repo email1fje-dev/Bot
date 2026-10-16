@@ -149,7 +149,7 @@ function attachDashboard(client) {
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null);
         if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور می‌تواند ایونت را مدیریت کند."});
-        return send(res,200,{event:client.__communityClash?client.__communityClash.get(gid):null});
+        if(client.__communityClash?.ready)await client.__communityClash.ready;return send(res,200,{event:client.__communityClash?client.__communityClash.get(gid):null});
       }
       if(req.method==="POST"&&url.pathname.startsWith("/api/community-clash/")){
         let b;try{b=await body(req)}catch{return send(res,400,{error:"درخواست نامعتبر است."})}
@@ -158,7 +158,7 @@ function attachDashboard(client) {
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null);
         if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
-        const cc=client.__communityClash;if(!cc)return send(res,503,{error:"موتور Community Clash هنوز آماده نیست."});
+        const cc=client.__communityClash;if(!cc)return send(res,503,{error:"موتور Community Clash هنوز آماده نیست."});if(cc.ready)await cc.ready;
         try{
           if(url.pathname==="/api/community-clash/create"){
             const title=String(b.title||"").trim(),description=String(b.description||"").trim(),question=String(b.question||"").trim(),mission=String(b.mission||"").trim();
