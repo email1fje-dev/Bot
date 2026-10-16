@@ -112,7 +112,7 @@ async function modal(i,e,type,existing=null){const m=new ModalBuilder().setCusto
 async function review(client,db,gid,sid,action,points,uid,reason){
   const e=get(gid);if(!e)throw new Error("ایونت پیدا نشد.");const s=e.submissions.find(x=>x.id===sid);if(!s)throw new Error("ارسال پیدا نشد.");
   s.status=action==="approve"?"approved":"rejected";s.points=action==="approve"?Math.max(0,Math.min(20,Number(points)||0)):0;s.reviewedBy=String(uid);s.reason=String(reason||"").slice(0,300);log(e,"review-"+action,uid,sid+" points="+s.points);
-  if(s.type==="meme"&&action==="approve"){const g=client.guilds.cache.get(gid),ch=g&&g.channels.cache.get(e.channels.memes);if(ch)await ch.send({content:"😂 **Meme Battle** • <@"+s.userId+">\n"+s.content,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("cc:vote:"+s.id).setLabel("رأی می‌دهم").setStyle(ButtonStyle.Primary))],allowedMentions:{parse:[]}});}
+  if(s.type==="meme"&&action==="approve"){const g=client.guilds.cache.get(gid),ch=g&&g.channels.cache.get(e.channels.memes);if(ch)await ch.send({content:"😂 **Meme Battle** • <@"+s.userId+">\n"+s.content,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("cc:vote:"+e.id+":"+s.id).setLabel("رأی می‌دهم").setStyle(ButtonStyle.Primary))],allowedMentions:{parse:[]}});}
   await save(db,e);return summary(e);
 }
 async function handle(i,client,db){
@@ -148,7 +148,16 @@ async function handle(i,client,db){
     if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("📥 ارسال جدید/ویرایش‌شده: "+type).setDescription("شناسه: "+current.id+"\nکاربر: <@"+current.userId+">\n\n"+(type==="meme"?"[مشاهده میم]("+current.content+")":current.content)).setFooter({text:"برای بررسی از پنل وب استفاده کن."})]});
     await i.reply({content:existingId?"پاسخت به‌روزرسانی شد و دوباره برای بررسی رفت. 💚":"ارسالت برای بررسی ثبت شد. 💚",ephemeral:true});return true;
   }
-  if(i.isButton()&&c.startsWith("cc:vote:")){const sid=c.split(":")[2],e=get(i.guild.id),s=e&&e.submissions.find(x=>x.id===sid);if(!e||!s||s.type!=="meme"||s.status!=="approved"){await i.reply({content:"این میم برای رأی‌گیری در دسترس نیست.",ephemeral:true});return true;}if(s.userId===i.user.id){await i.reply({content:"به میم خودت نمی‌توانی رأی بدهی.",ephemeral:true});return true;}e.votes[sid]=e.votes[sid]||{};if(e.votes[sid][i.user.id]){await i.reply({content:"قبلاً رأی داده‌ای.",ephemeral:true});return true;}e.votes[sid][i.user.id]=true;log(e,"meme-vote",i.user.id,sid);await save(db,e);await i.reply({content:"رأی ثبت شد. 💚",ephemeral:true});return true;}
+  if(i.isButton()&&c.startsWith("cc:vote:")){
+    const p=c.split(":"),e=get(i.guild.id),sid=p[3],s=e&&e.id===p[2]&&e.submissions.find(x=>x.id===sid);
+    if(!e||e.status!=="active"||e.stage!=="meme"||!s||s.type!=="meme"||s.status!=="approved"){await i.reply({content:"رأی‌گیری برای این میم فعلاً بسته است.",ephemeral:true});return true;}
+    if(!e.participants.includes(i.user.id)){await i.reply({content:"برای رأی دادن باید در ایونت ثبت‌نام کرده باشی.",ephemeral:true});return true;}
+    if(s.userId===i.user.id){await i.reply({content:"به میم خودت نمی‌توانی رأی بدهی.",ephemeral:true});return true;}
+    e.votes[sid]=e.votes[sid]||{};
+    if(e.votes[sid][i.user.id]){await i.reply({content:"قبلاً به این میم رأی داده‌ای.",ephemeral:true});return true;}
+    e.votes[sid][i.user.id]=true;log(e,"meme-vote",i.user.id,sid);await save(db,e);
+    await i.reply({content:"رأی ثبت شد. 💚",ephemeral:true});return true;
+  }
   return false;
 }
 function attach(client,db){
