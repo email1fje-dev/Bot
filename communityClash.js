@@ -121,13 +121,33 @@ async function handle(i,client,db){
   if(i.isButton()&&c.startsWith("cc:leave:")){const e=get(i.guild.id);if(!e||e.id!==c.split(":")[2]){await i.reply({content:"ایونت پیدا نشد.",ephemeral:true});return true;}e.participants=e.participants.filter(x=>x!==i.user.id);log(e,"leave",i.user.id);await save(db,e);await i.reply({content:"ثبت‌نامت لغو شد.",ephemeral:true});await refreshReg(i.guild,e);return true;}
   if(i.isButton()&&c.startsWith("cc:submit:")){const p=c.split(":"),type=p[2],e=get(i.guild.id);if(!e||e.id!==p[3]||e.status!=="active"){await i.reply({content:"ارسال‌ها فعلاً بسته‌اند.",ephemeral:true});return true;}if(!e.participants.includes(i.user.id)){await i.reply({content:"اول ثبت‌نام کن.",ephemeral:true});return true;}
     const requiredStage=type==="suggestion"?"mission":type;if(e.stage!==requiredStage){await i.reply({content:"این مرحله در حال حاضر فعال نیست.",ephemeral:true});return true;}const userSubs=e.submissions.filter(s=>s.userId===i.user.id&&s.type===type);if(type==="challenge"){const existing=userSubs.find(s=>s.status==="pending"||s.status==="approved");if(existing){await modal(i,e,type,existing);return true;}}else if(userSubs.filter(s=>s.status!=="rejected").length>=3){await i.reply({content:"به سقف ۳ ارسال برای این مرحله رسیدی.",ephemeral:true});return true;}await modal(i,e,type);return true;}
-  if(i.isModalSubmit()&&c.startsWith("cc:modal:")){const p=c.split(":"),type=p[2],e=get(i.guild.id);if(!e||e.id!==p[3]||e.status!=="active"||!e.participants.includes(i.user.id)){await i.reply({content:"ایونت یا ثبت‌نامت در دسترس نیست.",ephemeral:true});return true;}
-    const content=i.fields.getTextInputValue("content").trim();if(!content){await i.reply({content:"متن خالی پذیرفته نمی‌شود.",ephemeral:true});return true;}
+  if(i.isModalSubmit()&&c.startsWith("cc:modal:")){
+    const p=c.split(":"),type=p[2],e=get(i.guild.id),eventId=p[3],existingId=p[4];
+    if(!e||e.id!==eventId||e.status!=="active"||!e.participants.includes(i.user.id)){await i.reply({content:"ایونت یا ثبت‌نامت در دسترس نیست.",ephemeral:true});return true;}
+    const requiredStage=type==="suggestion"?"mission":type;
+    if(e.stage!==requiredStage){await i.reply({content:"مهلت این مرحله تمام شده.",ephemeral:true});return true;}
+    const content=i.fields.getTextInputValue("content").trim();
+    if(!content){await i.reply({content:"متن خالی پذیرفته نمی‌شود.",ephemeral:true});return true;}
     if(type==="meme"&&!/^https:\/\/\S+\.(png|jpe?g|gif|webp)(\?\S*)?$/i.test(content)){await i.reply({content:"لینک مستقیم HTTPS به تصویر PNG/JPG/GIF/WEBP وارد کن.",ephemeral:true});return true;}
-    if(type==="suggestion"&&e.submissions.some(s=>s.type===type&&s.content.toLowerCase()===content.toLowerCase())){await i.reply({content:"این پیشنهاد قبلاً ثبت شده؛ ایده متفاوت بفرست.",ephemeral:true});return true;}
-    const s={id:makeId(),userId:i.user.id,type,content,status:"pending",points:0,createdAt:Date.now(),reason:"",reviewedBy:null};e.submissions.push(s);log(e,"submission",i.user.id,type);await save(db,e);
-    const ch=i.guild.channels.cache.get(e.channels.review);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("📥 ارسال جدید: "+type).setDescription("شناسه: "+s.id+"\nکاربر: <@"+s.userId+">\n\n"+(type==="meme"?"[مشاهده میم]("+s.content+")":s.content)).setFooter({text:"برای بررسی از پنل وب استفاده کن."})]});
-    await i.reply({content:"ارسالت برای بررسی ثبت شد. 💚",ephemeral:true});return true;}
+    const normalized=content.toLocaleLowerCase().replace(/\s+/g," ").trim();
+    if(type==="suggestion"&&e.submissions.some(s=>s.type==="suggestion"&&s.status!=="rejected"&&s.userId!==i.user.id&&s.content.toLocaleLowerCase().replace(/\s+/g," ").trim()===normalized)){await i.reply({content:"این پیشنهاد قبلاً ثبت شده؛ ایده متفاوت بفرست.",ephemeral:true});return true;}
+    let current;
+    if(existingId){
+      current=e.submissions.find(s=>s.id===existingId&&s.userId===i.user.id&&s.type==="challenge");
+      if(!current||!["pending","approved"].includes(current.status)){await i.reply({content:"پاسخ قابل ویرایش پیدا نشد.",ephemeral:true});return true;}
+      current.content=content;current.status="pending";current.points=0;current.reason="";current.reviewedBy=null;current.updatedAt=Date.now();
+      log(e,"submission-edited",i.user.id,current.id);
+    }else{
+      if(type==="challenge"&&e.submissions.some(s=>s.type==="challenge"&&s.userId===i.user.id&&s.status!=="rejected")){await i.reply({content:"پاسخ قبلی را با دکمه ویرایش کن.",ephemeral:true});return true;}
+      if(type!=="challenge"&&e.submissions.filter(s=>s.type===type&&s.userId===i.user.id&&s.status!=="rejected").length>=3){await i.reply({content:"به سقف ارسال این مرحله رسیدی.",ephemeral:true});return true;}
+      current={id:makeId(),userId:i.user.id,type,content,status:"pending",points:0,createdAt:Date.now(),reason:"",reviewedBy:null};
+      e.submissions.push(current);
+    }
+    log(e,"submission",i.user.id,type);await save(db,e);
+    const ch=i.guild.channels.cache.get(e.channels.review);
+    if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("📥 ارسال جدید/ویرایش‌شده: "+type).setDescription("شناسه: "+current.id+"\nکاربر: <@"+current.userId+">\n\n"+(type==="meme"?"[مشاهده میم]("+current.content+")":current.content)).setFooter({text:"برای بررسی از پنل وب استفاده کن."})]});
+    await i.reply({content:existingId?"پاسخت به‌روزرسانی شد و دوباره برای بررسی رفت. 💚":"ارسالت برای بررسی ثبت شد. 💚",ephemeral:true});return true;
+  }
   if(i.isButton()&&c.startsWith("cc:vote:")){const sid=c.split(":")[2],e=get(i.guild.id),s=e&&e.submissions.find(x=>x.id===sid);if(!e||!s||s.type!=="meme"||s.status!=="approved"){await i.reply({content:"این میم برای رأی‌گیری در دسترس نیست.",ephemeral:true});return true;}if(s.userId===i.user.id){await i.reply({content:"به میم خودت نمی‌توانی رأی بدهی.",ephemeral:true});return true;}e.votes[sid]=e.votes[sid]||{};if(e.votes[sid][i.user.id]){await i.reply({content:"قبلاً رأی داده‌ای.",ephemeral:true});return true;}e.votes[sid][i.user.id]=true;log(e,"meme-vote",i.user.id,sid);await save(db,e);await i.reply({content:"رأی ثبت شد. 💚",ephemeral:true});return true;}
   return false;
 }
