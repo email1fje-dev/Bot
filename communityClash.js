@@ -105,8 +105,8 @@ function scheduleReminders(client,db,e){
       if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("⏰ یادآوری Community Clash").setDescription(hours===24?"فقط ۲۴ ساعت تا پایان ایونت باقی مانده؛ ارسال‌ها و رأی‌ها را کامل کن.":"فقط یک ساعت تا پایان ایونت باقی مانده؛ آخرین فرصت مشارکت است.")],allowedMentions:{parse:[]}});
       e.remindersSent.push(hours);log(e,"reminder-sent","system",hours+"h");await save(db,e);
     };
-    if(delay<=0)fire().catch(err=>console.error("[Community Clash] reminder:",err.message));
-    else timers.set(key,setTimeout(()=>fire().catch(err=>console.error("[Community Clash] reminder:",err.message)),Math.min(delay,2147480000)));
+    if(delay<0)continue;
+    timers.set(key,setTimeout(()=>fire().catch(err=>console.error("[Community Clash] reminder:",err.message)),Math.min(delay,2147480000)));
   }
 }
 async function start(client,db,gid,uid){const e=get(gid);if(!e)throw new Error("ایونتی ساخته نشده.");if(!["setup","paused"].includes(e.status))throw new Error("ایونت باید آماده یا متوقف‌شده باشد.");if(Number(e.endsAt)<=Date.now())throw new Error("زمان پایان ایونت گذشته است.");e.status="active";e.startedAt=e.startedAt||Date.now();log(e,"started",uid);await save(db,e);timer(client,db,e);scheduleReminders(client,db,e);const g=client.guilds.cache.get(String(gid));if(g)await refreshReg(g,e);return summary(e);}
@@ -118,7 +118,7 @@ async function finish(client,db,gid,uid,automatic=false){
   for(const s of e.submissions||[])if(s.type==="meme")s.bonusPoints=0;const awardedUsers=new Set();let rank=0;const memeRank=(e.submissions||[]).filter(s=>s.type==="meme"&&s.status==="approved").sort((a,b)=>Object.keys((e.votes||{})[b.id]||{}).length-Object.keys((e.votes||{})[a.id]||{}).length||a.createdAt-b.createdAt);for(const meme of memeRank){if(awardedUsers.has(meme.userId))continue;awardedUsers.add(meme.userId);meme.bonusPoints=[5,3,1][rank]||0;rank++;if(rank>=3)break;}if(rank)log(e,"meme-bonuses-awarded",uid,"رتبه‌های میم: "+rank);
   const g=client.guilds.cache.get(gid);if(g){const winners=board(e),keys=["champion","mvp","rising"];
     for(let n=0;n<Math.min(e.winnerCount,3,winners.length);n++){const m=await g.members.fetch(winners[n].userId).catch(()=>null),r=g.roles.cache.get(e.roles[keys[n]]);if(m&&r&&r.position<(g.members.me?.roles.highest.position||0)&&!m.roles.cache.has(r.id)){const added=await m.roles.add(r,"Community Clash winner").then(()=>true).catch(()=>false);if(added)e.roleExpiries.push({userId:m.id,roleId:r.id,expiresAt:Date.now()+e.roleDays*86400000,removedAt:null});}}
-    const ch=g.channels.cache.get(e.channels.announcements);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("🏆 Community Clash Results").setDescription(winners.slice(0,3).map((x,n)=>(["🥇","🥈","🥉"][n])+" <@"+x.userId+"> — **"+x.points+"** امتیاز").join("\n")||"امتیاز تأییدشده‌ای ثبت نشده.")],allowedMentions:{parse:[]}});
+    const ch=g.channels.cache.get(e.channels.announcements);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("🏆 Community Clash Results").setDescription(winners.slice(0,e.winnerCount).map((x,n)=>(["🥇","🥈","🥉"][n])+" <@"+x.userId+"> — **"+x.points+"** امتیاز").join("\n")||"امتیاز تأییدشده‌ای ثبت نشده.")],allowedMentions:{parse:[]}});
   }
   await save(db,e);if(g)await refreshReg(g,e);expireRoles(client,db,e);return summary(e);
 }
