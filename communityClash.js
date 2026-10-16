@@ -125,6 +125,7 @@ async function prepareEnd(client,db,gid,uid,automatic=false){
   const e=get(gid);if(!e||!["active","paused","setup"].includes(e.status))throw new Error("ایونتی برای بستن ارسال‌ها وجود ندارد.");
   e.status="reviewing_results";e.endedAt=Date.now();log(e,automatic?"auto-close-for-review":"closed-for-review",uid);
   clearTimeout(timers.get(String(gid)));timers.delete(String(gid));
+  for(const s of e.submissions||[])if(s.status==="pending"){s.status="rejected";s.points=0;s.reason="ارسال بررسی‌نشده هنگام بسته‌شدن ایونت رد شد.";s.reviewedBy=String(uid);s.reviewedAt=Date.now();log(e,"pending-auto-rejected",uid,s.id);}
   for(const s of e.submissions||[])if(s.type==="meme")s.bonusPoints=0;
   const awardedUsers=new Set();let rank=0;
   const memeRank=(e.submissions||[]).filter(s=>s.type==="meme"&&s.status==="approved").sort((a,b)=>Object.keys((e.votes||{})[b.id]||{}).length-Object.keys((e.votes||{})[a.id]||{}).length||a.createdAt-b.createdAt);
