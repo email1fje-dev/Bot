@@ -76,6 +76,16 @@ async function refreshReg(g,e){
   const msgs=await ch.messages.fetch({limit:10}).catch(()=>null);const msg=msgs&&msgs.find(m=>m.author.id===g.client.user.id&&m.components.some(r=>r.components.some(c=>c.customId==="cc:join:"+e.id)));
   if(msg)await msg.edit(registration(e)).catch(()=>{});
 }
+async function refreshLeaderboard(client,db,e){
+  const g=client.guilds.cache.get(String(e.guildId));if(!g)return;
+  const ch=g.channels.cache.get(e.channels.leaderboard);if(!ch)return;
+  const rows=board(e).slice(0,10);
+  const desc=rows.length?rows.map((x,n)=>(["🥇","🥈","🥉"][n]||("**"+(n+1)+".**"))+" <@"+x.userId+"> — **"+x.points+"** امتیاز").join("\n"):"هنوز امتیاز تأییدشده‌ای ثبت نشده.";
+  const msgs=await ch.messages.fetch({limit:25}).catch(()=>null);
+  const msg=msgs&&msgs.find(m=>m.author.id===client.user.id&&m.embeds.some(x=>x.title==="🏆 Leaderboard"));
+  if(msg)await msg.edit({embeds:[new EmbedBuilder().setColor(0x45e0a0).setTitle("🏆 Leaderboard").setDescription(desc+"\n\nوضعیت: **"+e.status+"** · مرحله: **"+e.stage+"**").setTimestamp()]});
+  await save(db,e);
+}
 function timer(client,db,e){
   const t=timers.get(e.guildId);if(t)clearTimeout(t);if(e.status!=="active")return;
   const remaining=Number(e.endsAt)-Date.now();if(remaining<=0){finish(client,db,e.guildId,e.createdBy,true).catch(err=>console.error("[Community Clash] end:",err.message));return;}timers.set(e.guildId,setTimeout(()=>timer(client,db,e),Math.min(remaining,2147480000)));
@@ -113,7 +123,7 @@ async function review(client,db,gid,sid,action,points,uid,reason){
   const e=get(gid);if(!e)throw new Error("ایونت پیدا نشد.");const s=e.submissions.find(x=>x.id===sid);if(!s)throw new Error("ارسال پیدا نشد.");
   s.status=action==="approve"?"approved":"rejected";s.points=action==="approve"?Math.max(0,Math.min(20,Number(points)||0)):0;s.reviewedBy=String(uid);s.reason=String(reason||"").slice(0,300);log(e,"review-"+action,uid,sid+" points="+s.points);
   if(s.type==="meme"&&action==="approve"){const g=client.guilds.cache.get(gid),ch=g&&g.channels.cache.get(e.channels.memes);if(ch)await ch.send({content:"😂 **Meme Battle** • <@"+s.userId+">\n"+s.content,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("cc:vote:"+e.id+":"+s.id).setLabel("رأی می‌دهم").setStyle(ButtonStyle.Primary))],allowedMentions:{parse:[]}});}
-  await save(db,e);return summary(e);
+  await save(db,e);await refreshLeaderboard(client,db,e);return summary(e);
 }
 async function handle(i,client,db){
   if(!i.guild)return false;const c=i.customId||"";
