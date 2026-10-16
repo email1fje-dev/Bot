@@ -90,11 +90,23 @@ async function finish(client,db,gid,uid,automatic=false){
     for(let n=0;n<Math.min(e.winnerCount,3,winners.length);n++){const m=await g.members.fetch(winners[n].userId).catch(()=>null),r=g.roles.cache.get(e.roles[keys[n]]);if(m&&r&&r.position<(g.members.me?.roles.highest.position||0)&&!m.roles.cache.has(r.id)){const added=await m.roles.add(r,"Community Clash winner").then(()=>true).catch(()=>false);if(added)e.roleExpiries.push({userId:m.id,roleId:r.id,expiresAt:Date.now()+e.roleDays*86400000,removedAt:null});}}
     const ch=g.channels.cache.get(e.channels.announcements);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("🏆 Community Clash Results").setDescription(winners.slice(0,3).map((x,n)=>(["🥇","🥈","🥉"][n])+" <@"+x.userId+"> — **"+x.points+"** امتیاز").join("\n")||"امتیاز تأییدشده‌ای ثبت نشده.")],allowedMentions:{parse:[]}});
   }
-  await save(db,e);expireRoles(client,e);return summary(e);
+  await save(db,e);expireRoles(client,db,e);return summary(e);
 }
-function expireRoles(client,e){
-  for(const x of e.roleExpiries||[]){const delay=x.expiresAt-Date.now();const remove=async()=>{const g=client.guilds.cache.find(z=>z.roles.cache.has(x.roleId));if(!g)return;const m=await g.members.fetch(x.userId).catch(()=>null);if(m&&m.roles.cache.has(x.roleId))await m.roles.remove(x.roleId,"Community Clash reward expired").catch(()=>{});};
-    if(delay<=0)remove().catch(()=>{});else setTimeout(()=>remove().catch(()=>{}),Math.min(delay,2147480000));}
+function expireRoles(client,db,e){
+  for(const x of e.roleExpiries||[]){
+    if(x.removedAt)continue;
+    const key=e.guildId+":"+x.userId+":"+x.roleId;
+    const old=timers.get("expiry:"+key);if(old)clearTimeout(old);
+    const remove=async()=>{
+      if(Date.now()<Number(x.expiresAt)){expireRoles(client,db,{...e,roleExpiries:[x]});return;}
+      const g=client.guilds.cache.get(String(e.guildId));
+      if(g){const m=await g.members.fetch(x.userId).catch(()=>null);if(m&&m.roles.cache.has(x.roleId))await m.roles.remove(x.roleId,"Community Clash reward expired").catch(()=>{});}
+      x.removedAt=Date.now();log(e,"reward-role-expired",x.userId,x.roleId);await save(db,e);
+    };
+    const delay=Number(x.expiresAt)-Date.now();
+    if(delay<=0)remove().catch(err=>console.error("[Community Clash] role expiry:",err.message));
+    else timers.set("expiry:"+key,setTimeout(()=>remove().catch(err=>console.error("[Community Clash] role expiry:",err.message)),Math.min(delay,2147480000)));
+  }
 }
 async function modal(i,e,type){const m=new ModalBuilder().setCustomId("cc:modal:"+type+":"+e.id).setTitle(type==="challenge"?"Community Challenge":type==="meme"?"Meme Battle":"Community Mission");
   m.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("content").setLabel(type==="meme"?"لینک مستقیم تصویر HTTPS":"متن ارسال").setStyle(type==="challenge"||type==="suggestion"?TextInputStyle.Paragraph:TextInputStyle.Short).setRequired(true).setMaxLength(type==="meme"?500:1500)));await i.showModal(m);}
@@ -123,6 +135,6 @@ async function handle(i,client,db){
 function attach(client,db){
   client.__communityClash={get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(db,g,stage,u),end:(g,u)=>finish(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
   client.on("interactionCreate",async i=>{try{if(await handle(i,client,db))return;}catch(e){console.error("[Community Clash]",e);if(i.isRepliable()&&!i.replied&&!i.deferred)await i.reply({content:"خطای ایونت: "+String(e.message||"خطا").slice(0,250),ephemeral:true}).catch(()=>{});}});
-  load(db).then(()=>{for(const e of events.values()){if(e.status==="active")timer(client,db,e);if(e.status==="ended")expireRoles(client,e);}}).catch(e=>console.error("[Community Clash] load:",e.message));
+  load(db).then(()=>{for(const e of events.values()){if(e.status==="active")timer(client,db,e);if(e.status==="ended")expireRoles(client,db,e);}}).catch(e=>console.error("[Community Clash] load:",e.message));
 }
 module.exports={attach};
