@@ -130,7 +130,7 @@ async function prepareEnd(client,db,gid,uid,automatic=false){
   const memeRank=(e.submissions||[]).filter(s=>s.type==="meme"&&s.status==="approved").sort((a,b)=>Object.keys((e.votes||{})[b.id]||{}).length-Object.keys((e.votes||{})[a.id]||{}).length||a.createdAt-b.createdAt);
   for(const meme of memeRank){if(awardedUsers.has(meme.userId))continue;awardedUsers.add(meme.userId);meme.bonusPoints=[5,3,1][rank]||0;rank++;if(rank>=3)break;}
   if(rank)log(e,"meme-bonuses-calculated",uid,"رتبه‌های میم: "+rank);
-  await save(db,e);
+  await save(db,e);await refreshLeaderboard(client,db,e);
   const g=client.guilds.cache.get(String(gid));
   if(g){
     await refreshReg(g,e);
