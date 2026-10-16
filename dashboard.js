@@ -50,7 +50,7 @@ function attachDashboard(client) {
 
   $('announceForm').onsubmit=e=>{e.preventDefault();postFeature('/api/announce',{channelId:$('announceChannel').value,message:$('announceText').value,kind:$('announceKind').value},'announceStatus')};
   $('purgeForm').onsubmit=e=>{e.preventDefault();postFeature('/api/purge',{channelId:$('purgeChannel').value,count:Number($('purgeCount').value)},'purgeStatus','این کار پیام‌های اخیر کانال را برای همه حذف می‌کند. ادامه می‌دهی؟')};
-  $('pollForm').onsubmit=e=>{e.preventDefault();postFeature('/api/poll',{channelId:$('pollChannel').value,question:$('pollQuestion').value,options:$('pollOptions').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean)},'pollStatus')};
+  $('pollForm').onsubmit=e=>{e.preventDefault();postFeature('/api/poll',{channelId:$('pollChannel').value,question:$('pollQuestion').value,options:$('pollOptions').value.split(/\\r?\\n/).map(x=>x.trim()).filter(Boolean)},'pollStatus')};
   $('memberRoleForm').onsubmit=e=>{e.preventDefault();postFeature('/api/member-role',{userId:$('roleMemberId').value.trim(),roleId:$('memberRoleId').value,action:$('memberRoleAction').value},'memberRoleStatus','تغییر نقش این عضو را تأیید می‌کنی؟')};
   init();
   </script></body></html>`;
