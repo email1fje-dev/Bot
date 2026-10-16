@@ -175,6 +175,7 @@ function attachDashboard(client) {
             else if(action==="pause")event=await cc.pause(gid,s.user.id);
             else if(action==="resume")event=await cc.resume(gid,s.user.id);
             else if(action==="end")event=await cc.end(gid,s.user.id);
+            else if(action.startsWith("stage:"))event=await cc.stage(gid,action.slice(6),s.user.id);
             else return send(res,400,{error:"عملیات نامعتبر است."});
             return send(res,200,{ok:true,event,message:"عملیات ایونت انجام شد."});
           }
