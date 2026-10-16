@@ -181,6 +181,18 @@ async function review(client,db,gid,sid,action,points,uid,reason){
   if(s.type==="meme"&&action==="approve"){const g=client.guilds.cache.get(gid),ch=g&&g.channels.cache.get(e.channels.memes);if(ch)await ch.send({content:"😂 **Meme Battle** • <@"+s.userId+">\n"+s.content,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("cc:vote:"+e.id+":"+s.id).setLabel("رأی می‌دهم").setStyle(ButtonStyle.Primary))],allowedMentions:{parse:[]}});}
   await save(db,e);await refreshMission(client,db,e);await refreshLeaderboard(client,db,e);return summary(e);
 }
+async function adjustPoints(client,db,gid,sid,points,uid,reason){
+  const e=get(gid);if(!e||!["active","paused","reviewing_results"].includes(e.status))throw new Error("تعدیل امتیاز فقط پیش از اعلام نتایج ممکن است.");
+  const s=e.submissions.find(x=>x.id===sid);if(!s||s.status!=="approved")throw new Error("فقط ارسال تأییدشده قابل تعدیل است.");
+  const why=String(reason||"").trim();if(!why)throw new Error("برای تغییر امتیاز، دلیل الزامی است.");
+  let value=Number(points);if(!Number.isInteger(value)||value<0)throw new Error("امتیاز باید عدد صحیح و غیرمنفی باشد.");
+  if(s.type==="challenge")value=Math.min(3,value);
+  else if(s.type==="suggestion"){const used=e.submissions.filter(x=>x.userId===s.userId&&x.type==="suggestion"&&x.status==="approved"&&x.id!==s.id).reduce((n,x)=>n+Number(x.points||0),0);value=Math.min(1,Math.max(0,3-used),value);}
+  else value=0;
+  const previous=s.points||0;s.points=value;s.adjustedAt=Date.now();s.adjustedBy=String(uid);s.adjustmentReason=why.slice(0,300);
+  log(e,"points-adjusted",uid,"submission="+sid+" "+previous+"->"+value+" reason="+why);
+  await save(db,e);await refreshMission(client,db,e);await refreshLeaderboard(client,db,e);return summary(e);
+}
 async function handle(i,client,db){
   if(!i.guild)return false;const c=i.customId||"";
   if(i.isButton()&&c.startsWith("cc:join:")){const e=get(i.guild.id);if(!e||e.id!==c.split(":")[2]||!["setup","active"].includes(e.status)){await i.reply({content:"ثبت‌نام در دسترس نیست.",ephemeral:true});return true;}if(e.participants.includes(i.user.id)){await i.reply({content:"از قبل ثبت‌نام کرده‌ای.",ephemeral:true});return true;}e.participants.push(i.user.id);log(e,"join",i.user.id);await save(db,e);await i.reply({content:"ثبت‌نامت انجام شد! 💚",ephemeral:true});await refreshReg(i.guild,e);return true;}
@@ -227,7 +239,7 @@ async function handle(i,client,db){
   return false;
 }
 function attach(client,db){
-  client.__communityClash={ready:null,get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(client,db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(client,db,g,stage,u),end:(g,u)=>finish(client,db,g,u),prepareEnd:(g,u)=>prepareEnd(client,db,g,u),cancel:(g,u)=>cancel(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
+  client.__communityClash={ready:null,get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(client,db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(client,db,g,stage,u),end:(g,u)=>finish(client,db,g,u),prepareEnd:(g,u)=>prepareEnd(client,db,g,u),cancel:(g,u)=>cancel(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r),adjust:(g,s,p,u,r)=>adjustPoints(client,db,g,s,p,u,r)};
   client.on("interactionCreate",async i=>{try{if(client.__communityClash?.ready)await client.__communityClash.ready;if(await handle(i,client,db))return;}catch(e){console.error("[Community Clash]",e);if(i.isRepliable()&&!i.replied&&!i.deferred)await i.reply({content:"خطای ایونت: "+String(e.message||"خطا").slice(0,250),ephemeral:true}).catch(()=>{});}});
   client.__communityClash.ready=load(db).then(()=>{for(const e of events.values())if(e.status==="active"){timer(client,db,e);scheduleReminders(client,db,e);}for(const e of historicalEvents)if(e.status==="ended")expireRoles(client,db,e);}).catch(e=>{console.error("[Community Clash] load:",e.message);});
 }
