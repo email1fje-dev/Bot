@@ -192,8 +192,8 @@ async function handle(i,client,db){
   return false;
 }
 function attach(client,db){
-  client.__communityClash={get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(client,db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(client,db,g,stage,u),end:(g,u)=>finish(client,db,g,u),cancel:(g,u)=>cancel(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
+  client.__communityClash={ready:null,get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(client,db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(client,db,g,stage,u),end:(g,u)=>finish(client,db,g,u),cancel:(g,u)=>cancel(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
   client.on("interactionCreate",async i=>{try{if(await handle(i,client,db))return;}catch(e){console.error("[Community Clash]",e);if(i.isRepliable()&&!i.replied&&!i.deferred)await i.reply({content:"خطای ایونت: "+String(e.message||"خطا").slice(0,250),ephemeral:true}).catch(()=>{});}});
-  load(db).then(()=>{for(const e of events.values()){if(e.status==="active"){timer(client,db,e);scheduleReminders(client,db,e);}if(e.status==="ended")expireRoles(client,db,e);}}).catch(e=>console.error("[Community Clash] load:",e.message));
+  client.__communityClash.ready=load(db).then(()=>{for(const e of events.values()){if(e.status==="active"){timer(client,db,e);scheduleReminders(client,db,e);}if(e.status==="ended")expireRoles(client,db,e);}}).catch(e=>{console.error("[Community Clash] load:",e.message);});
 }
 module.exports={attach};
