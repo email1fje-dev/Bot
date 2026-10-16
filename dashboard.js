@@ -207,6 +207,49 @@ function attachDashboard(client) {
       }
       if(req.method==="POST"&&url.pathname==="/api/hidem"){let b;try{b=await body(req)}catch(e){return send(res,400,{error:e.message||"درخواست نامعتبر است."})}if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});const g=client.guilds.cache.get(String(b.guildId));if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});const member=await g.members.fetch(s.user.id).catch(()=>null);if(!member||(!member.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور یا مالک پنل می‌تواند این کار را انجام دهد."});const ch=g.channels.cache.get(String(b.channelId));if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"کانال مقصد معتبر نیست."});if(!ch.permissionsFor(g.members.me)?.has("SendMessages"))return send(res,403,{error:"ربات اجازه ارسال پیام در این کانال را ندارد."});const message=String(b.message||"").trim();if(!message||message.length>2000)return send(res,400,{error:"متن پیام باید بین 1 تا 2000 کاراکتر باشد."});try{await ch.send({content:message,allowedMentions:{parse:[]}});send(res,200,{ok:true,message:"پیام با موفقیت ارسال شد."});}catch(e){console.error("[dashboard] Hidem send failed:",e.message);send(res,500,{error:"ارسال پیام ناموفق بود؛ دسترسی‌های کانال را بررسی کن."});}return;}
 
+      if(req.method==="POST"&&url.pathname==="/api/roles/create"){
+        let b;try{b=await body(req)}catch{return send(res,400,{error:"درخواست نامعتبر است."})}
+        if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});
+        const g=client.guilds.cache.get(String(b.guildId||""));
+        if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
+        const actor=await g.members.fetch(s.user.id).catch(()=>null),me=await g.members.fetchMe().catch(()=>g.members.me);
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور یا مالک پنل می‌تواند رول بسازد."});
+        if(!me?.permissions.has("ManageRoles"))return send(res,403,{error:"بات مجوز Manage Roles ندارد."});
+        const name=String(b.name||"").trim().slice(0,100),color=String(b.color||"#45e0a0").replace(/^#/,"");
+        if(!name)return send(res,400,{error:"نام رول الزامی است."});
+        if(!/^[0-9a-fA-F]{6}$/.test(color))return send(res,400,{error:"رنگ رول معتبر نیست."});
+        const allowed=new Set(["ViewChannel","SendMessages","EmbedLinks","AttachFiles","ReadMessageHistory","ManageMessages","ManageThreads","CreatePublicThreads","Connect","Speak","MuteMembers","MoveMembers","KickMembers","BanMembers","ModerateMembers","ManageNicknames","ManageRoles","ManageChannels","ManageWebhooks","ManageGuild","Administrator"]);
+        const {PermissionsBitField}=require("discord.js");
+        const requested=Array.isArray(b.permissions)?b.permissions.filter(p=>allowed.has(p)):[];
+        const permissionBits=new PermissionsBitField(requested.map(p=>PermissionsBitField.Flags[p]).filter(v=>v!==undefined));
+        try{
+          const role=await g.roles.create({name,color:parseInt(color,16),hoist:!!b.hoist,permissions:permissionBits,reason:"Created from dashboard by "+s.user.id});
+          return send(res,200,{ok:true,role:{id:role.id,name:role.name},message:"رول «"+role.name+"» ساخته شد."});
+        }catch(e){console.error("[dashboard] role create:",e.message);return send(res,500,{error:"ساخت رول ناموفق بود؛ مجوز Manage Roles و تنظیمات بات را بررسی کن."})}
+      }
+      if(req.method==="POST"&&url.pathname==="/api/roles/assign"){
+        let b;try{b=await body(req)}catch{return send(res,400,{error:"درخواست نامعتبر است."})}
+        if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});
+        const g=client.guilds.cache.get(String(b.guildId||""));
+        if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
+        const actor=await g.members.fetch(s.user.id).catch(()=>null),me=await g.members.fetchMe().catch(()=>g.members.me);
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور یا مالک پنل می‌تواند رول بدهد."});
+        if(!me?.permissions.has("ManageRoles"))return send(res,403,{error:"بات مجوز Manage Roles ندارد."});
+        const uid=String(b.userId||""),rid=String(b.roleId||""),action=String(b.action||"add");
+        if(!/^\\d{17,20}$/.test(uid))return send(res,400,{error:"شناسه عضو معتبر نیست."});
+        if(!["add","remove"].includes(action))return send(res,400,{error:"عملیات رول معتبر نیست."});
+        const role=g.roles.cache.get(rid);
+        if(!role)return send(res,404,{error:"رول پیدا نشد."});
+        if(role.managed||role.id===g.id||role.position>=me.roles.highest.position)return send(res,403,{error:"بات نمی‌تواند این رول را مدیریت کند؛ رول بات را بالاتر از رول هدف قرار بده."});
+        const member=await g.members.fetch(uid).catch(()=>null);
+        if(!member)return send(res,404,{error:"عضو در این سرور پیدا نشد."});
+        try{
+          if(action==="remove")await member.roles.remove(role,"Dashboard role management by "+s.user.id);
+          else await member.roles.add(role,"Dashboard role management by "+s.user.id);
+          return send(res,200,{message:action==="remove"?"رول از عضو گرفته شد.":"رول به عضو داده شد."});
+        }catch(e){console.error("[dashboard] role assign:",e.message);return send(res,500,{error:"تغییر رول ناموفق بود؛ مجوز Manage Roles و ترتیب رول‌های بات را بررسی کن."})}
+      }
+
       if(req.method==="POST"&&url.pathname==="/api/moderation"){
         let b;try{b=await body(req)}catch{return send(res,400,{error:"درخواست نامعتبر است."})}
         if(b.csrf!==s.csrf)return send(res,403,{error:"توکن امنیتی نامعتبر است."});
