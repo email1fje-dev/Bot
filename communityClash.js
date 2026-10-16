@@ -21,7 +21,7 @@ async function load(db) {
 }
 function board(e){
   const pts=new Map();
-  for(const s of e.submissions)if(s.status==="approved")pts.set(s.userId,(pts.get(s.userId)||0)+Number(s.points||0));
+  for(const s of e.submissions)if(s.status==="approved"){const votePoints=s.type==="meme"?Object.keys((e.votes||{})[s.id]||{}).length:0;pts.set(s.userId,(pts.get(s.userId)||0)+Number(s.points||0)+votePoints);}
   return [...pts.entries()].map(([userId,points])=>({userId,points})).sort((a,b)=>b.points-a.points);
 }
 function summary(e){
@@ -83,6 +83,7 @@ function timer(client,db,e){
 async function start(client,db,gid,uid){const e=get(gid);if(!e)throw new Error("ایونتی ساخته نشده.");if(e.status==="active")throw new Error("ایونت از قبل شروع شده.");e.status="active";e.startedAt=Date.now();log(e,"started",uid);await save(db,e);timer(client,db,e);return summary(e);}
 async function pause(db,gid,uid){const e=get(gid);if(!e||e.status!=="active")throw new Error("ایونت فعالی وجود ندارد.");e.status="paused";log(e,"paused",uid);clearTimeout(timers.get(gid));timers.delete(gid);await save(db,e);return summary(e);}
 async function resume(client,db,gid,uid){const e=get(gid);if(!e||e.status!=="paused")throw new Error("ایونت متوقف‌شده‌ای وجود ندارد.");e.status="active";log(e,"resumed",uid);await save(db,e);timer(client,db,e);return summary(e);}
+async function setStage(db,gid,stage,uid){const e=get(gid);if(!e||!["active","paused","setup"].includes(e.status))throw new Error("ابتدا ایونت را بساز.");if(!["challenge","meme","mission"].includes(stage))throw new Error("مرحله نامعتبر است.");e.stage=stage;log(e,"stage-changed",uid,stage);await save(db,e);return summary(e);}
 async function finish(client,db,gid,uid,automatic=false){
   const e=get(gid);if(!e||!["active","paused","setup"].includes(e.status))throw new Error("ایونتی برای پایان دادن وجود ندارد.");e.status="ended";e.endedAt=Date.now();log(e,automatic?"auto-ended":"ended",uid);clearTimeout(timers.get(gid));timers.delete(gid);
   const g=client.guilds.cache.get(gid);if(g){const winners=board(e),keys=["champion","mvp","rising"];
@@ -108,7 +109,7 @@ async function handle(i,client,db){
   if(i.isButton()&&c.startsWith("cc:join:")){const e=get(i.guild.id);if(!e||e.id!==c.split(":")[2]||!["setup","active"].includes(e.status)){await i.reply({content:"ثبت‌نام در دسترس نیست.",ephemeral:true});return true;}if(e.participants.includes(i.user.id)){await i.reply({content:"از قبل ثبت‌نام کرده‌ای.",ephemeral:true});return true;}e.participants.push(i.user.id);log(e,"join",i.user.id);await save(db,e);await i.reply({content:"ثبت‌نامت انجام شد! 💚",ephemeral:true});await refreshReg(i.guild,e);return true;}
   if(i.isButton()&&c.startsWith("cc:leave:")){const e=get(i.guild.id);if(!e||e.id!==c.split(":")[2]){await i.reply({content:"ایونت پیدا نشد.",ephemeral:true});return true;}e.participants=e.participants.filter(x=>x!==i.user.id);log(e,"leave",i.user.id);await save(db,e);await i.reply({content:"ثبت‌نامت لغو شد.",ephemeral:true});await refreshReg(i.guild,e);return true;}
   if(i.isButton()&&c.startsWith("cc:submit:")){const p=c.split(":"),type=p[2],e=get(i.guild.id);if(!e||e.id!==p[3]||e.status!=="active"){await i.reply({content:"ارسال‌ها فعلاً بسته‌اند.",ephemeral:true});return true;}if(!e.participants.includes(i.user.id)){await i.reply({content:"اول ثبت‌نام کن.",ephemeral:true});return true;}
-    const userSubs=e.submissions.filter(s=>s.userId===i.user.id&&s.type===type);if((type==="challenge"&&userSubs.length>=1)||(type!=="challenge"&&userSubs.length>=3)){await i.reply({content:"به سقف ارسال این مرحله رسیدی.",ephemeral:true});return true;}await modal(i,e,type);return true;}
+    const requiredStage=type==="suggestion"?"mission":type;if(e.stage!==requiredStage){await i.reply({content:"این مرحله در حال حاضر فعال نیست.",ephemeral:true});return true;}const userSubs=e.submissions.filter(s=>s.userId===i.user.id&&s.type===type);if((type==="challenge"&&userSubs.length>=1)||(type!=="challenge"&&userSubs.length>=3)){await i.reply({content:"به سقف ارسال این مرحله رسیدی.",ephemeral:true});return true;}await modal(i,e,type);return true;}
   if(i.isModalSubmit()&&c.startsWith("cc:modal:")){const p=c.split(":"),type=p[2],e=get(i.guild.id);if(!e||e.id!==p[3]||e.status!=="active"||!e.participants.includes(i.user.id)){await i.reply({content:"ایونت یا ثبت‌نامت در دسترس نیست.",ephemeral:true});return true;}
     const content=i.fields.getTextInputValue("content").trim();if(!content){await i.reply({content:"متن خالی پذیرفته نمی‌شود.",ephemeral:true});return true;}
     if(type==="meme"&&!/^https:\/\/\S+\.(png|jpe?g|gif|webp)(\?\S*)?$/i.test(content)){await i.reply({content:"لینک مستقیم HTTPS به تصویر PNG/JPG/GIF/WEBP وارد کن.",ephemeral:true});return true;}
@@ -120,7 +121,7 @@ async function handle(i,client,db){
   return false;
 }
 function attach(client,db){
-  client.__communityClash={get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(db,g,u),resume:(g,u)=>resume(client,db,g,u),end:(g,u)=>finish(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
+  client.__communityClash={get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(db,g,stage,u),end:(g,u)=>finish(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
   client.on("interactionCreate",async i=>{try{if(await handle(i,client,db))return;}catch(e){console.error("[Community Clash]",e);if(i.isRepliable()&&!i.replied&&!i.deferred)await i.reply({content:"خطای ایونت: "+String(e.message||"خطا").slice(0,250),ephemeral:true}).catch(()=>{});}});
   load(db).then(()=>{for(const e of events.values()){if(e.status==="active")timer(client,db,e);if(e.status==="ended")expireRoles(client,e);}}).catch(e=>console.error("[Community Clash] load:",e.message));
 }
