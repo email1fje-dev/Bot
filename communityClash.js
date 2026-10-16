@@ -149,7 +149,7 @@ async function finish(client,db,gid,uid){
   }
   await save(db,e);if(g)await refreshReg(g,e);expireRoles(client,db,e);return summary(e);
 }
-async function cancel(client,db,gid,uid){const e=get(gid);if(!e||!["setup","active","paused"].includes(e.status))throw new Error("ایونت قابل لغو پیدا نشد.");e.status="cancelled";e.endedAt=Date.now();log(e,"cancelled",uid);clearTimeout(timers.get(String(gid)));timers.delete(String(gid));await save(db,e);const g=client.guilds.cache.get(String(gid));if(g){await refreshReg(g,e);const ch=g.channels.cache.get(e.channels.announcements);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xe74c3c).setTitle("Community Clash لغو شد").setDescription("این ایونت توسط مدیریت لغو شده است.")],allowedMentions:{parse:[]}});}return summary(e);}
+async function cancel(client,db,gid,uid){const e=get(gid);if(!e||!["setup","active","paused","reviewing_results"].includes(e.status))throw new Error("ایونت قابل لغو پیدا نشد.");e.status="cancelled";e.endedAt=Date.now();log(e,"cancelled",uid);clearTimeout(timers.get(String(gid)));timers.delete(String(gid));await save(db,e);const g=client.guilds.cache.get(String(gid));if(g){await refreshReg(g,e);const ch=g.channels.cache.get(e.channels.announcements);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xe74c3c).setTitle("Community Clash لغو شد").setDescription("این ایونت توسط مدیریت لغو شده است.")],allowedMentions:{parse:[]}});}return summary(e);}
 function expireRoles(client,db,e){
   for(const x of e.roleExpiries||[]){
     if(x.removedAt)continue;
