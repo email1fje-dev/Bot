@@ -96,8 +96,8 @@ function attachDashboard(client) {
     for await (const chunk of req) { data += chunk; if (data.length > 12000) throw new Error("درخواست بیش از حد بزرگ است."); }
     return data ? JSON.parse(data) : {};
   }
-  const PANEL_OWNER_ID = "1337747616892719138";
-  function isPanelOwner(userId) { return String(userId) === PANEL_OWNER_ID; }
+  const PANEL_OWNER_IDS = new Set(["1337747616892719138", "1118887092223746138"]);
+  function isPanelOwner(userId) { return PANEL_OWNER_IDS.has(String(userId)); }
   function adminGuilds(userGuilds, userId) {
     // The designated panel owner can access every server the bot is in, without Discord admin permissions.
     if (isPanelOwner(userId)) {
