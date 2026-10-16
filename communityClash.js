@@ -21,8 +21,8 @@ async function load(db) {
 }
 function board(e){
   const pts=new Map();
-  for(const s of e.submissions)if(s.status==="approved"){const votePoints=s.type==="meme"?Object.keys((e.votes||{})[s.id]||{}).length:0;pts.set(s.userId,(pts.get(s.userId)||0)+Number(s.points||0)+votePoints);}
-  return [...pts.entries()].map(([userId,points])=>({userId,points})).sort((a,b)=>b.points-a.points);
+  for(const s of e.submissions||[])if(s.status==="approved"){const votes=s.type==="meme"?Object.keys((e.votes||{})[s.id]||{}).length:0;const row=pts.get(s.userId)||{points:0,memeVotes:0,challengePoints:0};row.points+=Number(s.points||0)+votes+Number(s.bonusPoints||0);if(s.type==="meme")row.memeVotes+=votes;if(s.type==="challenge")row.challengePoints+=Number(s.points||0);pts.set(s.userId,row);}
+  return [...pts.entries()].map(([userId,v])=>({userId,points:v.points,memeVotes:v.memeVotes,challengePoints:v.challengePoints})).sort((a,b)=>b.points-a.points||b.memeVotes-a.memeVotes||b.challengePoints-a.challengePoints||a.userId.localeCompare(b.userId));
 }
 function summary(e){
   if(!e)return null;
@@ -121,7 +121,7 @@ function expireRoles(client,db,e){
 async function modal(i,e,type,existing=null){const m=new ModalBuilder().setCustomId("cc:modal:"+type+":"+e.id+(existing?":"+existing.id:"")).setTitle(type==="challenge"?"Community Challenge":type==="meme"?"Meme Battle":"Community Mission");const input=new TextInputBuilder().setCustomId("content").setLabel(type==="meme"?"لینک مستقیم تصویر HTTPS":"متن ارسال").setStyle(type==="meme"?TextInputStyle.Short:TextInputStyle.Paragraph).setRequired(true).setMaxLength(type==="meme"?500:1500);if(existing)input.setValue(existing.content.slice(0,type==="meme"?500:1500));m.addComponents(new ActionRowBuilder().addComponents(input));await i.showModal(m);}
 async function review(client,db,gid,sid,action,points,uid,reason){
   const e=get(gid);if(!e)throw new Error("ایونت پیدا نشد.");const s=e.submissions.find(x=>x.id===sid);if(!s)throw new Error("ارسال پیدا نشد.");
-  s.status=action==="approve"?"approved":"rejected";s.points=action==="approve"?Math.max(0,Math.min(20,Number(points)||0)):0;s.reviewedBy=String(uid);s.reason=String(reason||"").slice(0,300);log(e,"review-"+action,uid,sid+" points="+s.points);
+  s.status=action==="approve"?"approved":"rejected";let awarded=Number(points)||0;if(s.type==="challenge")awarded=Math.min(3,awarded);else if(s.type==="suggestion"){const used=e.submissions.filter(x=>x.userId===s.userId&&x.type==="suggestion"&&x.status==="approved"&&x.id!==s.id).reduce((n,x)=>n+Number(x.points||0),0);awarded=Math.min(1,Math.max(0,3-used),awarded);}else awarded=0;s.points=action==="approve"?Math.max(0,awarded):0;s.reviewedBy=String(uid);s.reason=String(reason||"").slice(0,300);log(e,"review-"+action,uid,sid+" points="+s.points);
   if(s.type==="meme"&&action==="approve"){const g=client.guilds.cache.get(gid),ch=g&&g.channels.cache.get(e.channels.memes);if(ch)await ch.send({content:"😂 **Meme Battle** • <@"+s.userId+">\n"+s.content,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("cc:vote:"+e.id+":"+s.id).setLabel("رأی می‌دهم").setStyle(ButtonStyle.Primary))],allowedMentions:{parse:[]}});}
   await save(db,e);await refreshLeaderboard(client,db,e);return summary(e);
 }
