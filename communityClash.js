@@ -67,7 +67,7 @@ async function create(client,db,guildId,input){
   const now=Date.now(),e={id:makeId(),guildId:String(guildId),title:String(input.title||"Community Clash").slice(0,100),description:String(input.description||"سه روز رقابت دوستانه برای جامعه سرور").slice(0,1500),
     status:"setup",stage:"challenge",createdAt:now,startsAt:input.startsAt||now,endsAt:input.endsAt||now+3*86400000,winnerCount:Math.max(1,Math.min(3,Number(input.winnerCount)||3)),roleDays:Math.max(1,Math.min(90,Number(input.roleDays)||30)),
     question:String(input.question||"اگر می‌توانستی یک قابلیت به Discord اضافه کنی، چه بود و چرا؟").slice(0,1000),mission:String(input.mission||"سه پیشنهاد کاربردی و متفاوت برای بهتر شدن سرور ثبت کن.").slice(0,1000),
-    createdBy:String(input.createdBy||""),channels:{},roles:{},participants:[],submissions:[],votes:{},audit:[],roleExpiries:[]};
+    createdBy:String(input.createdBy||""),channels:{},roles:{},participants:[],submissions:[],votes:{},audit:[],roleExpiries:[],remindersSent:[]};
   await makeResources(g,e);events.set(g.id,e);log(e,"created",input.createdBy,"ساخت چنل‌ها، رول‌ها و پیام‌ها");
   await save(db,e);await postPanels(g,e);await save(db,e);return summary(e);
 }
@@ -90,9 +90,28 @@ function timer(client,db,e){
   const t=timers.get(e.guildId);if(t)clearTimeout(t);if(e.status!=="active")return;
   const remaining=Number(e.endsAt)-Date.now();if(remaining<=0){finish(client,db,e.guildId,e.createdBy,true).catch(err=>console.error("[Community Clash] end:",err.message));return;}timers.set(e.guildId,setTimeout(()=>timer(client,db,e),Math.min(remaining,2147480000)));
 }
-async function start(client,db,gid,uid){const e=get(gid);if(!e)throw new Error("ایونتی ساخته نشده.");if(!["setup","paused"].includes(e.status))throw new Error("ایونت باید آماده یا متوقف‌شده باشد.");if(Number(e.endsAt)<=Date.now())throw new Error("زمان پایان ایونت گذشته است.");e.status="active";e.startedAt=e.startedAt||Date.now();log(e,"started",uid);await save(db,e);timer(client,db,e);const g=client.guilds.cache.get(String(gid));if(g)await refreshReg(g,e);return summary(e);}
+function scheduleReminders(client,db,e){
+  if(e.status!=="active")return;
+  e.remindersSent ||= [];
+  for(const hours of [24,1]){
+    const key="reminder:"+e.guildId+":"+hours;
+    if(e.remindersSent.includes(hours))continue;
+    const delay=Number(e.endsAt)-Date.now()-hours*3600000;
+    const old=timers.get(key);if(old)clearTimeout(old);
+    const fire=async()=>{
+      if(Date.now()<Number(e.endsAt)-hours*3600000){scheduleReminders(client,db,e);return;}
+      if(e.status!=="active"||e.remindersSent.includes(hours))return;
+      const g=client.guilds.cache.get(e.guildId),ch=g&&g.channels.cache.get(e.channels.announcements);
+      if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("⏰ یادآوری Community Clash").setDescription(hours===24?"فقط ۲۴ ساعت تا پایان ایونت باقی مانده؛ ارسال‌ها و رأی‌ها را کامل کن.":"فقط یک ساعت تا پایان ایونت باقی مانده؛ آخرین فرصت مشارکت است.")],allowedMentions:{parse:[]}});
+      e.remindersSent.push(hours);log(e,"reminder-sent","system",hours+"h");await save(db,e);
+    };
+    if(delay<=0)fire().catch(err=>console.error("[Community Clash] reminder:",err.message));
+    else timers.set(key,setTimeout(()=>fire().catch(err=>console.error("[Community Clash] reminder:",err.message)),Math.min(delay,2147480000)));
+  }
+}
+async function start(client,db,gid,uid){const e=get(gid);if(!e)throw new Error("ایونتی ساخته نشده.");if(!["setup","paused"].includes(e.status))throw new Error("ایونت باید آماده یا متوقف‌شده باشد.");if(Number(e.endsAt)<=Date.now())throw new Error("زمان پایان ایونت گذشته است.");e.status="active";e.startedAt=e.startedAt||Date.now();log(e,"started",uid);await save(db,e);timer(client,db,e);scheduleReminders(client,db,e);const g=client.guilds.cache.get(String(gid));if(g)await refreshReg(g,e);return summary(e);}
 async function pause(client,db,gid,uid){const e=get(gid);if(!e||e.status!=="active")throw new Error("ایونت فعالی وجود ندارد.");e.status="paused";log(e,"paused",uid);clearTimeout(timers.get(String(gid)));timers.delete(String(gid));await save(db,e);const g=client.guilds.cache.get(String(gid));if(g)await refreshReg(g,e);return summary(e);}
-async function resume(client,db,gid,uid){const e=get(gid);if(!e||e.status!=="paused")throw new Error("ایونت متوقف‌شده‌ای وجود ندارد.");if(Number(e.endsAt)<=Date.now())return finish(client,db,gid,uid,true);e.status="active";log(e,"resumed",uid);await save(db,e);timer(client,db,e);const g=client.guilds.cache.get(String(gid));if(g)await refreshReg(g,e);return summary(e);}
+async function resume(client,db,gid,uid){const e=get(gid);if(!e||e.status!=="paused")throw new Error("ایونت متوقف‌شده‌ای وجود ندارد.");if(Number(e.endsAt)<=Date.now())return finish(client,db,gid,uid,true);e.status="active";log(e,"resumed",uid);await save(db,e);timer(client,db,e);scheduleReminders(client,db,e);const g=client.guilds.cache.get(String(gid));if(g)await refreshReg(g,e);return summary(e);}
 async function setStage(client,db,gid,stage,uid){const e=get(gid);if(!e||!["active","paused","setup"].includes(e.status))throw new Error("ابتدا ایونت را بساز.");if(!["challenge","meme","mission"].includes(stage))throw new Error("مرحله نامعتبر است.");e.stage=stage;log(e,"stage-changed",uid,stage);await save(db,e);const g=client.guilds.cache.get(String(gid)),ch=g&&g.channels.cache.get(e.channels.announcements);const names={challenge:"🧠 Community Challenge",meme:"😂 Meme Battle",mission:"🤝 Community Mission"};if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0x45e0a0).setTitle("مرحله جدید: "+names[stage]).setDescription(stage==="challenge"?e.question:stage==="mission"?e.mission:"ارسال میم باز است؛ میم‌های تأییدشده برای رأی‌گیری منتشر می‌شوند.")],allowedMentions:{parse:[]}});if(g)await refreshReg(g,e);return summary(e);}
 async function finish(client,db,gid,uid,automatic=false){
   const e=get(gid);if(!e||!["active","paused","setup"].includes(e.status))throw new Error("ایونتی برای پایان دادن وجود ندارد.");e.status="ended";e.endedAt=Date.now();log(e,automatic?"auto-ended":"ended",uid);clearTimeout(timers.get(gid));timers.delete(gid);
@@ -174,6 +193,6 @@ async function handle(i,client,db){
 function attach(client,db){
   client.__communityClash={get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(client,db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(client,db,g,stage,u),end:(g,u)=>finish(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
   client.on("interactionCreate",async i=>{try{if(await handle(i,client,db))return;}catch(e){console.error("[Community Clash]",e);if(i.isRepliable()&&!i.replied&&!i.deferred)await i.reply({content:"خطای ایونت: "+String(e.message||"خطا").slice(0,250),ephemeral:true}).catch(()=>{});}});
-  load(db).then(()=>{for(const e of events.values()){if(e.status==="active")timer(client,db,e);if(e.status==="ended")expireRoles(client,db,e);}}).catch(e=>console.error("[Community Clash] load:",e.message));
+  load(db).then(()=>{for(const e of events.values()){if(e.status==="active"){timer(client,db,e);scheduleReminders(client,db,e);}if(e.status==="ended")expireRoles(client,db,e);}}).catch(e=>console.error("[Community Clash] load:",e.message));
 }
 module.exports={attach};
