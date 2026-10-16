@@ -166,7 +166,7 @@ async function handle(i,client,db){
     e.votes[sid]=e.votes[sid]||{};
     if(e.votes[sid][i.user.id]){await i.reply({content:"قبلاً به این میم رأی داده‌ای.",ephemeral:true});return true;}
     e.votes[sid][i.user.id]=true;log(e,"meme-vote",i.user.id,sid);await save(db,e);
-    await i.reply({content:"رأی ثبت شد. 💚",ephemeral:true});return true;
+    await i.reply({content:"رأی ثبت شد. 💚",ephemeral:true});await refreshLeaderboard(client,db,e);return true;
   }
   return false;
 }
