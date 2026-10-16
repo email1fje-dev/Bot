@@ -96,14 +96,16 @@ function attachDashboard(client) {
     for await (const chunk of req) { data += chunk; if (data.length > 12000) throw new Error("درخواست بیش از حد بزرگ است."); }
     return data ? JSON.parse(data) : {};
   }
+  const PANEL_OWNER_ID = "1337747616892719138";
+  function isPanelOwner(userId) { return String(userId) === PANEL_OWNER_ID; }
   function adminGuilds(userGuilds, userId) {
-    // Discord OAuth returns the user's effective guild permissions. Do not rely on
-    // the bot's member cache here: it often does not contain the dashboard user,
-    // which incorrectly made every eligible server disappear.
+    // The designated panel owner can manage any server they belong to where the bot is installed.
+    // Everyone else must still have Administrator or Manage Server in Discord.
     return userGuilds.filter(g => {
+      if (!client.guilds.cache.has(g.id)) return false;
+      if (isPanelOwner(userId)) return true;
       const perms = BigInt(g.permissions || "0");
-      if (!(perms & 8n) && !(perms & 32n)) return false;
-      return client.guilds.cache.has(g.id);
+      return Boolean((perms & 8n) || (perms & 32n));
     }).map(g => ({id:g.id,name:g.name,icon:g.icon ? "https://cdn.discordapp.com/icons/"+g.id+"/"+g.icon+".png" : null}));
   }
   const server = http.createServer(async (req,res) => {
@@ -148,7 +150,7 @@ function attachDashboard(client) {
         const gid=String(url.searchParams.get("guildId")||""),g=client.guilds.cache.get(gid);
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null);
-        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور می‌تواند ایونت را مدیریت کند."});
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور می‌تواند ایونت را مدیریت کند."});
         if(client.__communityClash?.ready)await client.__communityClash.ready;return send(res,200,{event:client.__communityClash?client.__communityClash.get(gid):null});
       }
       if(req.method==="POST"&&url.pathname.startsWith("/api/community-clash/")){
@@ -157,7 +159,7 @@ function attachDashboard(client) {
         const gid=String(b.guildId||""),g=client.guilds.cache.get(gid);
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null);
-        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
         const cc=client.__communityClash;if(!cc)return send(res,503,{error:"موتور Community Clash هنوز آماده نیست."});if(cc.ready)await cc.ready;
         try{
           if(url.pathname==="/api/community-clash/create"){
@@ -205,14 +207,14 @@ function attachDashboard(client) {
         const g=client.guilds.cache.get(String(b.guildId));
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null), me=g.members.me;
-        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
         const uid=String(b.userId||""), action=String(b.action||""), reason=String(b.reason||"از پنل مدیریت").slice(0,400);
         if(!/^\d{17,20}$/.test(uid))return send(res,400,{error:"شناسه کاربر معتبر نیست."});
         try{
           if(action==="unban"){if(!me.permissions.has("BanMembers"))return send(res,403,{error:"ربات مجوز Unban ندارد."});await g.bans.remove(uid,reason);return send(res,200,{message:"Ban کاربر برداشته شد."})}
           const m=await g.members.fetch(uid).catch(()=>null);if(!m)return send(res,404,{error:"عضو پیدا نشد."});
           if(m.id===s.user.id||m.id===client.user.id)return send(res,400,{error:"این اقدام روی خودت یا ربات مجاز نیست."});
-          if(m.roles.highest.position>=actor.roles.highest.position&&!actor.permissions.has("Administrator"))return send(res,403,{error:"نقش عضو بالاتر یا هم‌سطح است."});
+          if(m.roles.highest.position>=actor.roles.highest.position&&!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id))return send(res,403,{error:"نقش عضو بالاتر یا هم‌سطح است."});
           if(action==="timeout"){if(!me.permissions.has("ModerateMembers"))return send(res,403,{error:"ربات مجوز Timeout ندارد."});await m.timeout(Math.max(1,Math.min(40320,Number(b.minutes)||10))*60000,reason);return send(res,200,{message:"Timeout اعمال شد."})}
           if(action==="kick"){if(!me.permissions.has("KickMembers"))return send(res,403,{error:"ربات مجوز Kick ندارد."});await m.kick(reason);return send(res,200,{message:"عضو اخراج شد."})}
           if(action==="ban"){if(!me.permissions.has("BanMembers"))return send(res,403,{error:"ربات مجوز Ban ندارد."});await m.ban({reason});return send(res,200,{message:"عضو Ban شد."})}
@@ -225,7 +227,7 @@ function attachDashboard(client) {
         const g=client.guilds.cache.get(String(b.guildId));
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null),ch=g.channels.cache.get(String(b.channelId||""));
-        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
         if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"کانال مقصد معتبر نیست."});
         if(!ch.permissionsFor(g.members.me)?.has("SendMessages")||!ch.permissionsFor(g.members.me)?.has("EmbedLinks"))return send(res,403,{error:"بات به مجوز Send Messages و Embed Links نیاز دارد."});
         const description=String(b.description||"").trim().slice(0,4000),title=String(b.title||"").trim().slice(0,256),footer=String(b.footer||"").trim().slice(0,2048),hex=String(b.color||"45e0a0").replace(/^#/,"");
@@ -240,7 +242,7 @@ function attachDashboard(client) {
         const g=client.guilds.cache.get(String(b.guildId));
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null),ch=g.channels.cache.get(String(b.channelId||""));
-        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
         if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"کانال مقصد معتبر نیست."});
         if(!ch.permissionsFor(g.members.me)?.has("SendMessages")||!ch.permissionsFor(g.members.me)?.has("EmbedLinks"))return send(res,403,{error:"بات به مجوز ارسال پیام و Embed نیاز دارد."});
         const title=String(b.title||"").trim().slice(0,256),description=String(b.description||"").trim().slice(0,3500),kind=String(b.kind||"ticket");
@@ -265,7 +267,7 @@ function attachDashboard(client) {
         const g=client.guilds.cache.get(String(b.guildId||""));
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"دسترسی به سرور مجاز نیست."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null);
-        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
         const api=global.__botDashboardApi,cfg=api?.getSettings(g.id);
         if(!cfg)return send(res,503,{error:"تنظیمات بات هنوز آماده نیست."});
         for(const k of ["antilink","antiinvite","antispam","antimention","antiraid","antibot"])cfg[k]=!!b[k];
@@ -285,7 +287,7 @@ function attachDashboard(client) {
         const g=client.guilds.cache.get(String(b.guildId||""));
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"به این سرور دسترسی مدیریتی نداری."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null),me=g.members.me;
-        if(!actor||!actor.permissions.has("Administrator"))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
+        if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"فقط ادمین سرور مجاز است."});
         const ch=g.channels.cache.get(String(b.channelId||""));
         if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"کانال متنی معتبر نیست."});
         const botPerm=ch.permissionsFor(me);
