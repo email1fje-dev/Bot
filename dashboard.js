@@ -99,11 +99,17 @@ function attachDashboard(client) {
   const PANEL_OWNER_ID = "1337747616892719138";
   function isPanelOwner(userId) { return String(userId) === PANEL_OWNER_ID; }
   function adminGuilds(userGuilds, userId) {
-    // The designated panel owner can manage any server they belong to where the bot is installed.
-    // Everyone else must still have Administrator or Manage Server in Discord.
+    // The designated panel owner can access every server the bot is in, without Discord admin permissions.
+    if (isPanelOwner(userId)) {
+      return [...client.guilds.cache.values()].map(g => ({
+        id: g.id,
+        name: g.name,
+        icon: g.icon ? "https://cdn.discordapp.com/icons/" + g.id + "/" + g.icon + ".png" : null
+      }));
+    }
+    // Other users only see servers where they have Administrator or Manage Server.
     return userGuilds.filter(g => {
       if (!client.guilds.cache.has(g.id)) return false;
-      if (isPanelOwner(userId)) return true;
       const perms = BigInt(g.permissions || "0");
       return Boolean((perms & 8n) || (perms & 32n));
     }).map(g => ({id:g.id,name:g.name,icon:g.icon ? "https://cdn.discordapp.com/icons/"+g.id+"/"+g.icon+".png" : null}));
