@@ -100,7 +100,7 @@ async function finish(client,db,gid,uid,automatic=false){
     for(let n=0;n<Math.min(e.winnerCount,3,winners.length);n++){const m=await g.members.fetch(winners[n].userId).catch(()=>null),r=g.roles.cache.get(e.roles[keys[n]]);if(m&&r&&r.position<(g.members.me?.roles.highest.position||0)&&!m.roles.cache.has(r.id)){const added=await m.roles.add(r,"Community Clash winner").then(()=>true).catch(()=>false);if(added)e.roleExpiries.push({userId:m.id,roleId:r.id,expiresAt:Date.now()+e.roleDays*86400000,removedAt:null});}}
     const ch=g.channels.cache.get(e.channels.announcements);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("🏆 Community Clash Results").setDescription(winners.slice(0,3).map((x,n)=>(["🥇","🥈","🥉"][n])+" <@"+x.userId+"> — **"+x.points+"** امتیاز").join("\n")||"امتیاز تأییدشده‌ای ثبت نشده.")],allowedMentions:{parse:[]}});
   }
-  await save(db,e);expireRoles(client,db,e);return summary(e);
+  await save(db,e);if(g)await refreshReg(g,e);expireRoles(client,db,e);return summary(e);
 }
 function expireRoles(client,db,e){
   for(const x of e.roleExpiries||[]){
@@ -108,7 +108,7 @@ function expireRoles(client,db,e){
     const key=e.guildId+":"+x.userId+":"+x.roleId;
     const old=timers.get("expiry:"+key);if(old)clearTimeout(old);
     const remove=async()=>{
-      if(Date.now()<Number(x.expiresAt)){const wait=Number(x.expiresAt)-Date.now();timers.set("expiry:"+key,setTimeout(()=>remove().catch(err=>console.error("[Community Clash] role expiry:",err.message)),Math.min(wait,2147480000));return;}
+      if(Date.now()<Number(x.expiresAt)){const wait=Number(x.expiresAt)-Date.now();timers.set("expiry:"+key,setTimeout(()=>remove().catch(err=>console.error("[Community Clash] role expiry:",err.message)),Math.min(wait,2147480000)));return;}
       const g=client.guilds.cache.get(String(e.guildId));
       if(g){const m=await g.members.fetch(x.userId).catch(()=>null);if(m&&m.roles.cache.has(x.roleId))await m.roles.remove(x.roleId,"Community Clash reward expired").catch(()=>{});}
       x.removedAt=Date.now();log(e,"reward-role-expired",x.userId,x.roleId);await save(db,e);
