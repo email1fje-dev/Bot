@@ -188,6 +188,12 @@ function attachDashboard(client) {
             const event=await cc.review(gid,sid,action,points,s.user.id,String(b.reason||""));
             return send(res,200,{ok:true,event,message:"بررسی ذخیره شد."});
           }
+          if(url.pathname==="/api/community-clash/points"){
+            const sid=String(b.submissionId||""),points=Number(b.points),reason=String(b.reason||"").trim();
+            if(!sid||!Number.isInteger(points)||points<0||!reason)return send(res,400,{error:"شناسه، امتیاز و دلیل معتبر الزامی است."});
+            const event=await cc.adjust(gid,sid,points,s.user.id,reason);
+            return send(res,200,{ok:true,event,message:"تعدیل امتیاز با ثبت دلیل انجام شد."});
+          }
           return send(res,404,{error:"مسیر Community Clash پیدا نشد."});
         }catch(err){console.error("[dashboard] Community Clash:",err.message);return send(res,400,{error:String(err.message||"عملیات ناموفق بود.").slice(0,400)});}
       }
