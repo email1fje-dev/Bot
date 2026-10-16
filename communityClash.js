@@ -78,7 +78,7 @@ async function refreshReg(g,e){
 }
 function timer(client,db,e){
   const t=timers.get(e.guildId);if(t)clearTimeout(t);if(e.status!=="active")return;
-  timers.set(e.guildId,setTimeout(()=>finish(client,db,e.guildId,e.createdBy,true).catch(err=>console.error("[Community Clash] end:",err.message)),Math.max(1000,Math.min(2147480000,Number(e.endsAt)-Date.now()))));
+  const remaining=Number(e.endsAt)-Date.now();if(remaining<=0){finish(client,db,e.guildId,e.createdBy,true).catch(err=>console.error("[Community Clash] end:",err.message));return;}timers.set(e.guildId,setTimeout(()=>timer(client,db,e),Math.min(remaining,2147480000)));
 }
 async function start(client,db,gid,uid){const e=get(gid);if(!e)throw new Error("ایونتی ساخته نشده.");if(e.status==="active")throw new Error("ایونت از قبل شروع شده.");e.status="active";e.startedAt=Date.now();log(e,"started",uid);await save(db,e);timer(client,db,e);return summary(e);}
 async function pause(db,gid,uid){const e=get(gid);if(!e||e.status!=="active")throw new Error("ایونت فعالی وجود ندارد.");e.status="paused";log(e,"paused",uid);clearTimeout(timers.get(gid));timers.delete(gid);await save(db,e);return summary(e);}
@@ -87,7 +87,7 @@ async function setStage(db,gid,stage,uid){const e=get(gid);if(!e||!["active","pa
 async function finish(client,db,gid,uid,automatic=false){
   const e=get(gid);if(!e||!["active","paused","setup"].includes(e.status))throw new Error("ایونتی برای پایان دادن وجود ندارد.");e.status="ended";e.endedAt=Date.now();log(e,automatic?"auto-ended":"ended",uid);clearTimeout(timers.get(gid));timers.delete(gid);
   const g=client.guilds.cache.get(gid);if(g){const winners=board(e),keys=["champion","mvp","rising"];
-    for(let n=0;n<Math.min(e.winnerCount,3,winners.length);n++){const m=await g.members.fetch(winners[n].userId).catch(()=>null),r=g.roles.cache.get(e.roles[keys[n]]);if(m&&r&&r.position<(g.members.me?.roles.highest.position||0)){await m.roles.add(r,"Community Clash winner").catch(()=>{});e.roleExpiries.push({userId:m.id,roleId:r.id,expiresAt:Date.now()+e.roleDays*86400000});}}
+    for(let n=0;n<Math.min(e.winnerCount,3,winners.length);n++){const m=await g.members.fetch(winners[n].userId).catch(()=>null),r=g.roles.cache.get(e.roles[keys[n]]);if(m&&r&&r.position<(g.members.me?.roles.highest.position||0)&&!m.roles.cache.has(r.id)){const added=await m.roles.add(r,"Community Clash winner").then(()=>true).catch(()=>false);if(added)e.roleExpiries.push({userId:m.id,roleId:r.id,expiresAt:Date.now()+e.roleDays*86400000,removedAt:null});}}
     const ch=g.channels.cache.get(e.channels.announcements);if(ch)await ch.send({embeds:[new EmbedBuilder().setColor(0xf1c40f).setTitle("🏆 Community Clash Results").setDescription(winners.slice(0,3).map((x,n)=>(["🥇","🥈","🥉"][n])+" <@"+x.userId+"> — **"+x.points+"** امتیاز").join("\n")||"امتیاز تأییدشده‌ای ثبت نشده.")],allowedMentions:{parse:[]}});
   }
   await save(db,e);expireRoles(client,e);return summary(e);
