@@ -17,7 +17,7 @@ async function load(db) {
   if(!db)return;
   const {data,error}=await db.from(TABLE).select("guild_id,event_id,event_data");
   if(error){console.error("[Community Clash] load:",error.message);return;}
-  for(const row of data||[]){const e=row.event_data;if(e&&e.guildId){const old=get(row.guild_id);if(!old||e.createdAt>old.createdAt)events.set(row.guild_id,e);}}
+  historicalEvents.length=0;for(const row of data||[]){const e=row.event_data;if(e&&e.guildId){historicalEvents.push(e);const old=get(row.guild_id);if(!old||Number(e.createdAt)>Number(old.createdAt))events.set(String(row.guild_id),e);}}
 }
 function board(e){
   const pts=new Map();
@@ -221,6 +221,6 @@ async function handle(i,client,db){
 function attach(client,db){
   client.__communityClash={ready:null,get:g=>summary(get(g)),create:(g,x)=>create(client,db,g,x),start:(g,u)=>start(client,db,g,u),pause:(g,u)=>pause(client,db,g,u),resume:(g,u)=>resume(client,db,g,u),stage:(g,stage,u)=>setStage(client,db,g,stage,u),end:(g,u)=>finish(client,db,g,u),prepareEnd:(g,u)=>prepareEnd(client,db,g,u),cancel:(g,u)=>cancel(client,db,g,u),review:(g,s,a,p,u,r)=>review(client,db,g,s,a,p,u,r)};
   client.on("interactionCreate",async i=>{try{if(client.__communityClash?.ready)await client.__communityClash.ready;if(await handle(i,client,db))return;}catch(e){console.error("[Community Clash]",e);if(i.isRepliable()&&!i.replied&&!i.deferred)await i.reply({content:"خطای ایونت: "+String(e.message||"خطا").slice(0,250),ephemeral:true}).catch(()=>{});}});
-  client.__communityClash.ready=load(db).then(()=>{for(const e of events.values()){if(e.status==="active"){timer(client,db,e);scheduleReminders(client,db,e);}if(e.status==="ended")expireRoles(client,db,e);}}).catch(e=>{console.error("[Community Clash] load:",e.message);});
+  client.__communityClash.ready=load(db).then(()=>{for(const e of events.values())if(e.status==="active"){timer(client,db,e);scheduleReminders(client,db,e);}for(const e of historicalEvents)if(e.status==="ended")expireRoles(client,db,e);}).catch(e=>{console.error("[Community Clash] load:",e.message);});
 }
 module.exports={attach};
