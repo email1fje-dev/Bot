@@ -50,7 +50,7 @@ async function makeResources(g,e){
     e.channels[key]=ch.id;
   }
   const roles=[["champion","Community Champion",0xf1c40f],["mvp","Community MVP",0x3498db],["rising","Rising Star",0xe67e22]];
-  for(const [key,name,color] of roles){let role=g.roles.cache.find(r=>r.name===name&&!r.managed&&r.permissions.bitfield===0n);if(!role){const roleName=g.roles.cache.some(r=>r.name===name)?name+" • Clash":name;role=await g.roles.create({name:roleName,color,permissions:[],hoist:true,mentionable:false,reason:"Community Clash reward role with no elevated permissions"});}e.roles[key]=role.id;}
+  for(const [key,name,color] of roles){const roleName=g.roles.cache.some(r=>r.name===name&&!r.managed)?name+" • "+e.id.slice(0,4):name;const role=await g.roles.create({name:roleName,color,permissions:[],hoist:true,mentionable:false,reason:"Community Clash reward role with no elevated permissions"});e.roles[key]=role.id;}
 }
 async function postPanels(g,e){
   const ch=k=>g.channels.cache.get(e.channels[k]);
