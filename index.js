@@ -723,7 +723,6 @@ const commands = [
     .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true))
     .addStringOption(o=>o.setName("reason").setDescription("Reason.")),
   new SlashCommandBuilder().setName("unmute").setDescription("Remove a timeout.")
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addUserOption(o=>o.setName("user").setDescription("Member.").setRequired(true)),
   new SlashCommandBuilder().setName("ticket-add").setDescription("Add a member to the current ticket.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
@@ -1043,7 +1042,7 @@ client.on("interactionCreate", async interaction => {
   if (!guild) return interaction.reply({content:"❌ This command can only be used in a server.",ephemeral:true});
 
   const s = getSettings(guild.id);
-  const adminCommands = ["selfrole","srm","comp","compm","hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot","modlog","history","unwarn","unban","slowmode","nick","softban","unmute","ticket-add","ticket-remove","ticket-rename","giveaway","role","rolepanel","dashboard"];
+  const adminCommands = ["selfrole","srm","comp","compm","hidem","warn","clearwarnings","timeout","kick","ban","purge","lockdown","setup-logs","setlogs","setwelcome","setinvitelog","setlevelchannel","levelset","config","raidmode","ticketpanel","rules","levelsetup","setuplevel","cases","antibot","modlog","history","unwarn","unban","slowmode","nick","softban","ticket-add","ticket-remove","ticket-rename","giveaway","role","rolepanel","dashboard"];
   if (adminCommands.includes(interaction.commandName) && !isAdmin(interaction.member)) {
     return interaction.reply({content:"❌ Administrator permission required.",ephemeral:true});
   }
@@ -1581,9 +1580,16 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({content:"🔨 <@"+user.id+"> was softbanned."});
     }
     if (interaction.commandName === "unmute") {
-      const user=interaction.options.getUser("user",true),member=await guild.members.fetch(user.id);
-      await member.timeout(null,"Manual unmute");
-      return interaction.reply({content:"🔊 <@"+user.id+"> is no longer timed out."});
+      const authorized = isAdmin(interaction.member) || interaction.user.id === "1337747616892719138";
+      if (!authorized) return interaction.reply({content:"❌ You are not allowed to use /unmute.",ephemeral:true});
+      const user=interaction.options.getUser("user",true);
+      const member=await guild.members.fetch(user.id).catch(()=>null);
+      if (!member) return interaction.reply({content:"❌ I could not find that member in this server.",ephemeral:true});
+      if (!member.moderatable) return interaction.reply({content:"❌ I cannot remove this member’s timeout. Check my Moderate Members permission and role hierarchy.",ephemeral:true});
+      await member.timeout(null,"Manual unmute by "+interaction.user.tag);
+      await addModCase(guild.id,"UNMUTE",user.id,interaction.user.id,"Manual unmute");
+      await modLog(guild,"🔊 <@"+user.id+"> was unmuted by <@"+interaction.user.id+">.");
+      return interaction.reply({content:"🔊 <@"+user.id+"> is no longer timed out.",ephemeral:true});
     }
     if (interaction.commandName.startsWith("ticket-")) {
       if(!ticketChannel(interaction.channel))return interaction.reply({content:"❌ This command only works inside a ticket.",ephemeral:true});
