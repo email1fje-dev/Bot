@@ -5,6 +5,7 @@ const {
 const crypto = require("node:crypto");
 const TABLE = "community_clash_events";
 const events = new Map(), timers = new Map();
+const historicalEvents = [];
 const makeId = () => crypto.randomBytes(6).toString("hex");
 const get = guildId => events.get(String(guildId)) || null;
 const log = (e, action, userId, details="") => { e.audit.unshift({id:makeId(),action,userId:String(userId||""),details,at:Date.now()}); e.audit=e.audit.slice(0,300); };
