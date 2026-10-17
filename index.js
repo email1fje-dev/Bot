@@ -868,7 +868,7 @@ async function registerCommands() {
   console.log(`Registered ${body.length} GLOBAL slash commands.`);
 }
 
-client.once("ready", async () => {
+client.once("clientReady", async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await loadPersistentData();
   for (const guild of client.guilds.cache.values()) {
