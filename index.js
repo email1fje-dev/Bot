@@ -1,3 +1,28 @@
+// Structured runtime logs shared by the bot and dashboard (latest 500 entries kept in memory).
+if (!global.__botLogBuffer) global.__botLogBuffer = [];
+global.__pushBotLog = function(level, source, message) {
+  const entry = {timestamp:new Date().toISOString(), level:String(level||"info").toLowerCase(), source:String(source||"bot"), message:String(message||"").slice(0,3000)};
+  global.__botLogBuffer.push(entry);
+  if (global.__botLogBuffer.length > 500) global.__botLogBuffer.splice(0, global.__botLogBuffer.length - 500);
+  return entry;
+};
+if (!global.__structuredConsoleInstalled) {
+  global.__structuredConsoleInstalled = true;
+  const original = {log:console.log.bind(console), info:console.info.bind(console), warn:console.warn.bind(console), error:console.error.bind(console), debug:console.debug.bind(console)};
+  const stringify = value => {
+    if (value instanceof Error) return value.stack || value.message;
+    if (typeof value === "string") return value;
+    try { return JSON.stringify(value); } catch { return String(value); }
+  };
+  for (const level of ["log","info","warn","error","debug"]) {
+    console[level] = (...args) => {
+      const message = args.map(stringify).join(" ").replace(/(token|secret|password|authorization)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]").slice(0,3000);
+      const source = /\[dashboard\]/i.test(message) ? "dashboard" : "bot";
+      global.__pushBotLog(level === "log" ? "info" : level, source, message);
+      original[level](JSON.stringify({timestamp:new Date().toISOString(),level:level==="log"?"info":level,source,message}));
+    };
+  }
+}
 const extraFeatures = require("./extraFeatures");
 const music = require("./music");
 const tmps = require("./tmps");
