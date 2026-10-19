@@ -168,21 +168,169 @@ async function handleInteraction(interaction,ctx){
   }
 
   if(name==="backup"){
-    if(interaction.options.getSubcommand()==="create"){
-      const data={version:1,createdAt:new Date().toISOString(),guild:{name:guild.name},
-        roles:guild.roles.cache.filter(r=>!r.managed&&!r.isEveryone()).sort((a,b)=>a.position-b.position).map(r=>({name:r.name,color:r.hexColor,hoist:r.hoist,mentionable:r.mentionable})),
-        channels:guild.channels.cache.filter(c=>c.type===ChannelType.GuildCategory||c.isTextBased()).sort((a,b)=>(a.rawPosition||0)-(b.rawPosition||0)).map(c=>({name:c.name,type:c.type,parentName:c.parent?.name||null,topic:"topic"in c?c.topic:null,nsfw:"nsfw"in c?c.nsfw:false}))
-      };
-      return interaction.reply({content:"📦 Server structure backup created.",files:[new AttachmentBuilder(Buffer.from(JSON.stringify(data,null,2)),{name:"server-backup.json"})],ephemeral:true});
+    const sub=interaction.options.getSubcommand();
+    const fail=content=>interaction.reply({content,ephemeral:true});
+    const channelTypeName=type=>({
+      [ChannelType.GuildCategory]:"category",
+      [ChannelType.GuildText]:"text",
+      [ChannelType.GuildAnnouncement]:"announcement",
+      [ChannelType.GuildVoice]:"voice",
+      [ChannelType.GuildStageVoice]:"stage",
+      [ChannelType.GuildForum]:"forum",
+      [ChannelType.GuildMedia]:"media"
+    }[type]||"unsupported");
+    const typeFromName=name=>({
+      category:ChannelType.GuildCategory,text:ChannelType.GuildText,
+      announcement:ChannelType.GuildAnnouncement,voice:ChannelType.GuildVoice,
+      stage:ChannelType.GuildStageVoice,forum:ChannelType.GuildForum,
+      media:ChannelType.GuildMedia
+    }[name]);
+    const channelRef=(id,g)=>{const c=id?g.channels.cache.get(id):null;return c?{name:c.name,type:channelTypeName(c.type)}:null;};
+    if(sub==="create"){
+      await interaction.deferReply({ephemeral:true});
+      try{
+        const core=ctx.getSettings?ctx.getSettings(guild.id):null;
+        const serialCore=core?{
+          antilink:!!core.antilink,antispam:!!core.antispam,antiraid:!!core.antiraid,
+          antimention:!!core.antimention,antiinvite:!!core.antiinvite,antibot:!!core.antibot,
+          welcome:channelRef(core.welcome,guild),inviteLog:channelRef(core.inviteLog,guild),
+          levelChannel:channelRef(core.levelChannel,guild),
+          logChannels:Object.fromEntries(["member","mod","server"].map(k=>[k,channelRef(core.logChannels?.[k]|| (k==="mod"?core.logs:null),guild)]))
+        }:null;
+        const roles=guild.roles.cache.filter(r=>!r.managed&&!r.isEveryone())
+          .sort((a,b)=>a.position-b.position).map(r=>({
+            name:r.name,color:r.hexColor,hoist:r.hoist,mentionable:r.mentionable,
+            permissions:r.permissions.bitfield.toString()
+          }));
+        const channels=guild.channels.cache
+          .filter(c=>channelTypeName(c.type)!=="unsupported")
+          .sort((a,b)=>(a.rawPosition||0)-(b.rawPosition||0)).map(c=>({
+            name:c.name,type:channelTypeName(c.type),parentName:c.parent?.name||null,
+            topic:"topic"in c?c.topic:null,nsfw:"nsfw"in c?!!c.nsfw:false,
+            rateLimitPerUser:c.rateLimitPerUser||0,bitrate:"bitrate"in c?c.bitrate:null,
+            userLimit:"userLimit"in c?c.userLimit:null,
+            permissionOverwrites:c.permissionOverwrites.cache.map(o=>{
+              const target=o.type===0?guild.roles.cache.get(o.id):guild.channels.cache.get(o.id);
+              return target?{targetType:o.type===0?"role":"channel",targetName:target.name,
+                allow:o.allow.bitfield.toString(),deny:o.deny.bitfield.toString()}:null;
+            }).filter(Boolean)
+          }));
+        const data={
+          format:"kylo-discord-backup",version:2,createdAt:new Date().toISOString(),
+          guild:{name:guild.name},roles,channels,
+          settings:serialCore,
+          extraFeatures:{
+            automod:state.automod.get(guild.id)||null,
+            welcome:state.welcome.get(guild.id)||null,
+            goodbye:state.goodbye.get(guild.id)||null,
+            xp:state.xp.get(guild.id)||null
+          },
+          notes:[
+            "This backup stores bot-supported settings and server roles/channels, not messages, members, or private application submissions.",
+            "Restore matches roles/channels by exact name. Ambiguous permission-overwrite targets are skipped.",
+            "Role order, member role assignments, integrations, webhooks, emojis, and secrets are not restored."
+          ]
+        };
+        const json=JSON.stringify(data,null,2);
+        if(Buffer.byteLength(json,"utf8")>7_500_000)return interaction.editReply({content:"❌ Backup is too large to attach to Discord. Try a smaller server."});
+        return interaction.editReply({content:"📦 **Backup created.** It includes supported security/welcome settings, roles, channel structure, and channel permission overwrites. Download the JSON and keep it safe.",files:[new AttachmentBuilder(Buffer.from(json,"utf8"),{name:"server-backup.json"})]});
+      }catch(error){
+        console.error("Backup create failed:",error);
+        return interaction.editReply({content:"❌ Could not create the backup. Check the bot logs and permissions."});
+      }
     }
-    const file=interaction.options.getAttachment("file",true); if(!file.name.toLowerCase().endsWith(".json"))return interaction.reply({content:"❌ Backup must be JSON.",ephemeral:true});
-    const response=await fetch(file.url).catch(()=>null); if(!response?.ok)return interaction.reply({content:"❌ Could not download the backup file.",ephemeral:true}); const data=await response.json().catch(()=>null);
-    if(!data?.version||!Array.isArray(data.roles)||!Array.isArray(data.channels))return interaction.reply({content:"❌ Invalid backup.",ephemeral:true});
-    let roles=0,channels=0; const cats=new Map();
-    for(const r of data.roles){if(guild.roles.cache.some(x=>x.name===r.name&&!x.managed))continue;await guild.roles.create({name:r.name,color:r.color,hoist:!!r.hoist,mentionable:!!r.mentionable,reason:"Backup restore"}).then(()=>roles++).catch(()=>{});}
-    for(const c of data.channels.filter(x=>x.type===ChannelType.GuildCategory)){const ex=guild.channels.cache.find(x=>x.type===ChannelType.GuildCategory&&x.name===c.name);const cat=ex||await guild.channels.create({name:c.name,type:c.type,reason:"Backup restore"}).catch(()=>null);if(cat)cats.set(c.name,cat);}
-    for(const c of data.channels.filter(x=>x.type!==ChannelType.GuildCategory)){if(guild.channels.cache.some(x=>x.name===c.name&&x.type===c.type))continue;await guild.channels.create({name:c.name,type:c.type,parent:cats.get(c.parentName)?.id,topic:c.topic||undefined,nsfw:!!c.nsfw,reason:"Backup restore"}).then(()=>channels++).catch(()=>{});}
-    return interaction.reply({content:"♻️ Restore complete. Created **"+roles+"** roles and **"+channels+"** channels. Existing items were preserved.",ephemeral:true});
+    const file=interaction.options.getAttachment("file",true);
+    if(!file.name.toLowerCase().endsWith(".json")||file.size>8_000_000)return fail("❌ Upload a JSON backup smaller than 8 MB.");
+    await interaction.deferReply({ephemeral:true});
+    const response=await fetch(file.url).catch(()=>null);
+    if(!response?.ok)return interaction.editReply({content:"❌ Could not download the backup file."});
+    const data=await response.json().catch(()=>null);
+    if(!data||data.format!=="kylo-discord-backup"||![1,2].includes(data.version)||!Array.isArray(data.roles)||!Array.isArray(data.channels))return interaction.editReply({content:"❌ Invalid or unsupported backup file. Use a JSON made by this bot."});
+    if(data.roles.length>250||data.channels.length>500)return interaction.editReply({content:"❌ Backup exceeds safe role/channel limits."});
+    let rolesCreated=0,channelsCreated=0,skipped=0,overwritesApplied=0;
+    const roleMap=new Map(),channelMap=new Map(), ambiguousRoles=new Set(),ambiguousChannels=new Set();
+    const matchUnique=(collection,name)=>{const found=collection.filter(x=>x.name===name);return found.length===1?found[0]:null;};
+    for(const r of data.roles){
+      const matches=guild.roles.cache.filter(x=>x.name===r.name&&!x.managed);
+      if(matches.size===1)roleMap.set(r.name,matches.first());
+      else if(matches.size>1)ambiguousRoles.add(r.name);
+    }
+    for(const c of data.channels){
+      const matches=guild.channels.cache.filter(x=>x.name===c.name&&channelTypeName(x.type)===c.type);
+      if(matches.size===1)channelMap.set(c.type+":"+c.name,matches.first());
+      else if(matches.size>1)ambiguousChannels.add(c.type+":"+c.name);
+    }
+    // Create missing roles first; never edit or delete existing roles.
+    for(const r of data.roles){
+      if(roleMap.has(r.name)||ambiguousRoles.has(r.name)){skipped++;continue;}
+      const created=await guild.roles.create({
+        name:String(r.name).slice(0,100),color:/^#[0-9a-f]{6}$/i.test(r.color||"")?r.color:0,
+        hoist:!!r.hoist,mentionable:!!r.mentionable,
+        permissions:/^\d+$/.test(String(r.permissions||""))?BigInt(r.permissions):0n,
+        reason:"Restore bot server backup"
+      }).catch(()=>null);
+      if(created){roleMap.set(r.name,created);rolesCreated++;}else skipped++;
+    }
+    const ordered=[...data.channels].sort((a,b)=>(a.type==="category"?-1:0)-(b.type==="category"?-1:0));
+    // Create categories before child channels, preserving existing matching channels.
+    for(const c of ordered){
+      if(!typeFromName(c.type)){skipped++;continue;}
+      const key=c.type+":"+c.name;
+      if(channelMap.has(key)||ambiguousChannels.has(key)){skipped++;continue;}
+      const parent= c.parentName ? channelMap.get("category:"+c.parentName) : null;
+      const options={name:String(c.name).slice(0,100),type:typeFromName(c.type),reason:"Restore bot server backup"};
+      if(parent&&c.type!=="category")options.parent=parent.id;
+      if(c.topic&&["text","announcement","forum","media"].includes(c.type))options.topic=String(c.topic).slice(0,1024);
+      if(["text","announcement","forum","media"].includes(c.type))options.nsfw=!!c.nsfw;
+      if(c.type==="text"||c.type==="announcement")options.rateLimitPerUser=Math.max(0,Math.min(21600,Number(c.rateLimitPerUser)||0));
+      if(c.type==="voice"||c.type==="stage"){if(Number(c.bitrate)>0)options.bitrate=Math.min(Number(c.bitrate),guild.maximumBitrate||96000);if(Number(c.userLimit)>=0)options.userLimit=Math.min(Number(c.userLimit)||0,99);}
+      const created=await guild.channels.create(options).catch(()=>null);
+      if(created){channelMap.set(key,created);channelsCreated++;}else skipped++;
+    }
+    // Rebuild permission overwrites only from unambiguous role/channel name matches.
+    for(const c of data.channels){
+      const target=channelMap.get(c.type+":"+c.name);
+      if(!target||!Array.isArray(c.permissionOverwrites))continue;
+      const overwrites=[];
+      for(const o of c.permissionOverwrites){
+        let dest=null;
+        if(o.targetType==="role"){
+          const matches=guild.roles.cache.filter(r=>r.name===o.targetName&&!r.managed);
+          if(matches.size===1)dest=matches.first();
+        }else if(o.targetType==="channel"){
+          const matches=guild.channels.cache.filter(ch=>ch.name===o.targetName);
+          if(matches.size===1)dest=matches.first();
+        }
+        if(!dest)continue;
+        if(!/^\d+$/.test(String(o.allow))||!/^\d+$/.test(String(o.deny)))continue;
+        overwrites.push({id:dest.id,allow:BigInt(o.allow),deny:BigInt(o.deny)});
+      }
+      if(overwrites.length){
+        await target.permissionOverwrites.set(overwrites,"Restore bot server backup").then(()=>overwritesApplied+=overwrites.length).catch(()=>{skipped++;});
+      }
+    }
+    // Restore supported bot settings using destination IDs resolved by exact unique channel names.
+    if(data.settings&&ctx.getSettings){
+      const s=ctx.getSettings(guild.id);
+      for(const key of ["antilink","antispam","antiraid","antimention","antiinvite","antibot"])if(typeof data.settings[key]==="boolean")s[key]=data.settings[key];
+      const resolveChannel=ref=>{
+        if(!ref||!ref.name||!ref.type)return null;
+        const matches=guild.channels.cache.filter(ch=>ch.name===ref.name&&channelTypeName(ch.type)===ref.type);
+        return matches.size===1?matches.first().id:null;
+      };
+      for(const key of ["welcome","inviteLog","levelChannel"])if(key in data.settings)s[key]=resolveChannel(data.settings[key]);
+      if(data.settings.logChannels){
+        s.logChannels={member:resolveChannel(data.settings.logChannels.member),mod:resolveChannel(data.settings.logChannels.mod),server:resolveChannel(data.settings.logChannels.server)};
+        s.logs=s.logChannels.mod;
+      }
+      if(ctx.saveGuildSettings)await ctx.saveGuildSettings(guild.id);
+    }
+    for(const key of ["automod","welcome","goodbye","xp"]){
+      const value=data.extraFeatures?.[key];
+      if(value&&typeof value==="object")state[key].set(guild.id,value);
+    }
+    const summary="♻️ **Restore finished.**\n• Roles created: **"+rolesCreated+"**\n• Channels created: **"+channelsCreated+"**\n• Permission overwrites applied: **"+overwritesApplied+"**\n• Skipped/ambiguous items: **"+skipped+"**\n\nExisting roles and channels were preserved. Check channel permissions before using the server.";
+    return interaction.editReply({content:summary});
   }
   return false;
 }
