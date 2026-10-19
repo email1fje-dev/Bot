@@ -646,9 +646,10 @@ const commands = [
     .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true))
     .addStringOption(o => o.setName("reason").setDescription("Reason.").setMaxLength(500)),
 
-  new SlashCommandBuilder().setName("ban").setDescription("Ban a member.")
-    .addUserOption(o => o.setName("user").setDescription("Member.").setRequired(true))
-    .addStringOption(o => o.setName("reason").setDescription("Reason.").setMaxLength(500)),
+  new SlashCommandBuilder().setName("ban").setDescription("Permanently ban a member from this server.")
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers.toString())
+    .addUserOption(o => o.setName("user").setDescription("Member to ban.").setRequired(true))
+    .addStringOption(o => o.setName("reason").setDescription("Reason for the ban.").setMaxLength(500)),
 
   new SlashCommandBuilder().setName("purge").setDescription("Delete recent messages.")
     .addIntegerOption(o => o.setName("amount").setDescription("1-100 messages.").setMinValue(1).setMaxValue(100).setRequired(true)),
@@ -1447,12 +1448,21 @@ client.on("interactionCreate", async interaction => {
       const user = interaction.options.getUser("user",true);
       const member = await guild.members.fetch(user.id).catch(()=>null);
       const reason = interaction.options.getString("reason") || "No reason provided";
-      if (!member?.manageable) return interaction.reply({content:"❌ I cannot moderate that member.",ephemeral:true});
-      if (interaction.commandName === "kick") await member.kick(reason);
-      else await member.ban({reason});
+      const me = guild.members.me;
+      if (!member?.manageable) return interaction.reply({content:"❌ I cannot moderate that member because of role hierarchy.",ephemeral:true});
+      if (interaction.commandName === "kick") {
+        if (!me?.permissions.has(PermissionFlagsBits.KickMembers)) return interaction.reply({content:"❌ I need the Kick Members permission.",ephemeral:true});
+        if (!member.kickable) return interaction.reply({content:"❌ I cannot kick this member because of role hierarchy.",ephemeral:true});
+        await member.kick(reason);
+      } else {
+        if (!me?.permissions.has(PermissionFlagsBits.BanMembers)) return interaction.reply({content:"❌ I need the Ban Members permission.",ephemeral:true});
+        if (!member.bannable) return interaction.reply({content:"❌ I cannot ban this member because of role hierarchy.",ephemeral:true});
+        await member.ban({reason});
+      }
       await addModCase(guild.id,interaction.commandName.toUpperCase(),user.id,interaction.user.id,reason);
-      await modLog(guild,`${interaction.commandName === "kick" ? "👢" : "🔨"} <@${user.id}> ${interaction.commandName}ed by <@${interaction.user.id}>: ${reason}`);
-      return interaction.reply({content:`✅ Member ${interaction.commandName}ed.`,ephemeral:true});
+      const actionLabel = interaction.commandName === "kick" ? "kicked" : "banned";
+      await modLog(guild,`${interaction.commandName === "kick" ? "👢" : "🔨"} <@${user.id}> was ${actionLabel} by <@${interaction.user.id}>: ${reason}`);
+      return interaction.reply({content:`✅ Member ${actionLabel} successfully.`,ephemeral:true});
     }
 
     if (interaction.commandName === "purge") {
@@ -1583,9 +1593,15 @@ client.on("interactionCreate", async interaction => {
       return interaction.reply({content:"✅ Removed the most recent warning from <@"+user.id+">.",ephemeral:true});
     }
     if (interaction.commandName === "unban") {
-      const id=interaction.options.getString("user_id",true);
-      await guild.members.unban(id,"Manual unban").catch(e=>{throw new Error("Could not unban that user: "+e.message);});
-      return interaction.reply({content:"🔓 User **"+id+"** has been unbanned."});
+      const id=interaction.options.getString("user_id",true).trim();
+      if(!/^\\d{17,20}$/.test(id))return interaction.reply({content:"❌ Enter a valid Discord user ID (17–20 digits).",ephemeral:true});
+      if(!guild.members.me?.permissions.has(PermissionFlagsBits.BanMembers))return interaction.reply({content:"❌ I need the Ban Members permission to unban users.",ephemeral:true});
+      const banned=await guild.bans.fetch(id).catch(()=>null);
+      if(!banned)return interaction.reply({content:"ℹ️ That user is not currently banned from this server.",ephemeral:true});
+      await guild.members.unban(id,"Manual unban by "+interaction.user.tag);
+      await addModCase(guild.id,"UNBAN",id,interaction.user.id,"Manual unban");
+      await modLog(guild,"🔓 User **"+id+"** was unbanned by <@"+interaction.user.id+">.");
+      return interaction.reply({content:"🔓 User **"+id+"** has been unbanned.",ephemeral:true});
     }
     if (interaction.commandName === "slowmode") {
       const seconds=interaction.options.getInteger("seconds",true);
