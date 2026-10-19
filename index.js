@@ -26,6 +26,7 @@ if (!global.__structuredConsoleInstalled) {
 const extraFeatures = require("./extraFeatures");
 const music = require("./music");
 const tmps = require("./tmps");
+const tester = require("./tester");
 const { attachDashboard } = require("./dashboard");
 const communityClash = require("./communityClash");
 const { createClient } = require("@supabase/supabase-js");
@@ -618,6 +619,7 @@ function compRolePanel(guild) {
 const commands = [
   ...music.commands.map(c => c),
   ...tmps.commands.map(c => c),
+  ...tester.commands.map(c => c),
   ...extraFeatures.commands.map(c => c),
   new SlashCommandBuilder()
     .setName("hidem")
@@ -893,6 +895,8 @@ client.on("inviteDelete", invite => {
 client.on("interactionCreate", async interaction => {
   const handledTmps = await tmps.handleInteraction(interaction);
   if (handledTmps) return;
+  const handledTester = await tester.handleInteraction(interaction);
+  if (handledTester) return;
   const handledMusic = await music.handleInteraction(interaction);
   if (handledMusic) return;
   if (interaction.isChatInputCommand()) {
@@ -1746,6 +1750,10 @@ client.on("messageCreate", async message => {
   try {
     const handledTmpsMessage = await tmps.handleMessage(message);
     if (handledTmpsMessage) return;
+  try {
+    const handledTesterMessage = await tester.handleMessage(message);
+    if (handledTesterMessage) return;
+  } catch (error) { console.error("[Tester Applications] message handler crashed:", error); }
   } catch (error) {
     console.error("[TMPS] message handler crashed:", error);
     if (message && !message.author?.bot) {
