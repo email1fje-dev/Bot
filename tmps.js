@@ -278,4 +278,6 @@ async function handleMessage(message) {
   return true;
 }
 
+function listForGuild(guildId){return [...applications.values()].filter(a=>a.guildId===guildId).map(a=>({id:a.id,type:"Trial Moderator",userId:a.userId,userTag:a.userTag,avatar:a.avatar,status:a.status,createdAt:a.createdAt,answers:QUESTIONS.map((q,i)=>({question:q[0],answer:a.answers[i]||"*Skipped*"})),decisionBy:a.decisionBy||null}));}
+global.__tmpsApplicationDashboardAPI={listForGuild};
 module.exports={commands,handleInteraction,handleMessage};
