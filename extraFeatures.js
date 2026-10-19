@@ -67,7 +67,8 @@ const commands = [
   new SlashCommandBuilder().setName("backup").setDescription("Create or restore a server structure backup.")
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator.toString())
     .addSubcommand(s=>s.setName("create").setDescription("Create a JSON backup."))
-    .addSubcommand(s=>s.setName("restore").setDescription("Restore a JSON backup."))
+    .addSubcommand(s=>s.setName("restore").setDescription("Restore a JSON backup.")
+      .addAttachmentOption(o=>o.setName("file").setDescription("Optional: attach the backup JSON here.")))
 ];
 
 function get(map,id,defaults){if(!map.has(id))map.set(id,Object.assign({},defaults));return map.get(id);}
@@ -239,20 +240,24 @@ async function handleInteraction(interaction,ctx){
       }
     }
     await interaction.deferReply({ephemeral:true});
-    await interaction.editReply({content:"📎 حالا فایل بکاپ با پسوند `.json` رو همین‌جا بفرست. اولین فایل JSON که بفرستی دریافت می‌شه (تا ۲ دقیقه فرصت داری)."});
-    let file=null;
     try{
-      const collected=await interaction.channel.awaitMessages({
-        filter:m=>m.author.id===interaction.user.id&&m.attachments.some(a=>a.name?.toLowerCase().endsWith(".json")),
-        max:1,time:120_000,errors:["time"]
-      });
-      file=collected.first()?.attachments.find(a=>a.name?.toLowerCase().endsWith(".json"))||null;
-    }catch{
-      return interaction.editReply({content:"⌛ زمان ارسال فایل تموم شد. دوباره `/backup restore` رو اجرا کن و فایل JSON رو بفرست."});
-    }
-    if(!file)return interaction.editReply({content:"❌ فایل JSON پیدا نشد. دوباره `/backup restore` رو اجرا کن."});
-    if(file.size>8_000_000)return interaction.editReply({content:"❌ حجم فایل باید کمتر از ۸ مگابایت باشه."});
-    const response=await fetch(file.url).catch(()=>null);
+      // Accept the attachment directly if Discord still shows the older required-file UI.
+      let file=interaction.options.getAttachment("file");
+      if(!file){
+        await interaction.editReply({content:"📎 حالا فایل بکاپ با پسوند `.json` رو همین‌جا به‌صورت پیام بفرست. اولین فایل JSON که بفرستی دریافت می‌شه (تا ۲ دقیقه فرصت داری)."});
+        try{
+          const collected=await interaction.channel.awaitMessages({
+            filter:m=>m.author.id===interaction.user.id&&m.attachments.size>0,
+            max:1,time:120_000,errors:["time"]
+          });
+          file=collected.first()?.attachments.find(a=>a.name?.toLowerCase().endsWith(".json"))||null;
+        }catch{
+          return interaction.editReply({content:"⌛ زمان ارسال فایل تموم شد. دوباره `/backup restore` رو اجرا کن و فایل JSON رو بفرست."});
+        }
+      }
+      if(!file||!file.name?.toLowerCase().endsWith(".json"))return interaction.editReply({content:"❌ فایل باید JSON باشه. دوباره `/backup restore` رو اجرا کن و فایل درست رو بفرست."});
+      if(file.size>8_000_000)return interaction.editReply({content:"❌ حجم فایل باید کمتر از ۸ مگابایت باشه."});
+      const response=await fetch(file.url).catch(()=>null);
     if(!response?.ok)return interaction.editReply({content:"❌ Could not download the backup file."});
     const data=await response.json().catch(()=>null);
     if(!data||data.format!=="kylo-discord-backup"||![1,2].includes(data.version)||!Array.isArray(data.roles)||!Array.isArray(data.channels))return interaction.editReply({content:"❌ Invalid or unsupported backup file. Use a JSON made by this bot."});
@@ -341,6 +346,10 @@ async function handleInteraction(interaction,ctx){
     }
     const summary="♻️ **Restore finished.**\n• Roles created: **"+rolesCreated+"**\n• Channels created: **"+channelsCreated+"**\n• Permission overwrites applied: **"+overwritesApplied+"**\n• Skipped/ambiguous items: **"+skipped+"**\n\nExisting roles and channels were preserved. Check channel permissions before using the server.";
     return interaction.editReply({content:summary});
+    }catch(error){
+      console.error("Backup restore failed:",error);
+      return interaction.editReply({content:"❌ موقع Restore خطا پیش اومد. لاگ بات ثبتش کرد؛ فایل و دسترسی‌های بات رو بررسی می‌کنیم."}).catch(()=>null);
+    }
   }
   return false;
 }
