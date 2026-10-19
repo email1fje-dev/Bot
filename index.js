@@ -900,7 +900,7 @@ client.on("interactionCreate", async interaction => {
   const handledMusic = await music.handleInteraction(interaction);
   if (handledMusic) return;
   if (interaction.isChatInputCommand()) {
-    const handled = await extraFeatures.handleInteraction(interaction, {client, getLevelInfo, saveLevelData, applyLevelRole, statBucket});
+    const handled = await extraFeatures.handleInteraction(interaction, {client, getLevelInfo, saveLevelData, applyLevelRole, statBucket, getSettings, saveGuildSettings});
     if (handled) return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
