@@ -247,7 +247,7 @@ async function handleInteraction(interaction,ctx){
         await interaction.editReply({content:"📎 حالا فایل بکاپ با پسوند `.json` رو همین‌جا به‌صورت پیام بفرست. اولین فایل JSON که بفرستی دریافت می‌شه (تا ۲ دقیقه فرصت داری)."});
         try{
           const collected=await interaction.channel.awaitMessages({
-            filter:m=>m.author.id===interaction.user.id&&m.attachments.size>0,
+            filter:m=>m.author.id===interaction.user.id&&m.attachments.some(a=>a.name?.toLowerCase().endsWith(".json")),
             max:1,time:120_000,errors:["time"]
           });
           file=collected.first()?.attachments.find(a=>a.name?.toLowerCase().endsWith(".json"))||null;
