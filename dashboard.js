@@ -81,7 +81,7 @@ function attachDashboard(client) {
     const subs=clashEvent.submissions||[];$('clashSubmissions').innerHTML=subs.length?subs.map(s=>'<div class="stat" style="margin:10px 0"><strong>'+esc(s.type)+' · '+esc(s.status)+'</strong><p class="small">User: '+esc(s.userId)+' · Points: '+s.points+' · Votes: '+s.votes+'</p><p style="white-space:pre-wrap;overflow-wrap:anywhere">'+esc(s.content)+'</p>'+(s.status==='pending'?'<button data-cc-review="'+esc(s.id)+'" data-cc-action="approve" data-cc-type="'+esc(s.type)+'">Approve & Award Points</button> <button class="danger" data-cc-review="'+esc(s.id)+'" data-cc-action="reject">Reject Submission</button>':'<p class="muted small">Reason: '+esc(s.reason||'—')+'</p>'+(s.status==='approved'?'<button data-cc-adjust="'+esc(s.id)+'" data-cc-type="'+esc(s.type)+'">Adjust Points</button>':''))+'</div>').join(''):'<div class="empty">No submissions yet.</div>';
     $('clashLeaderboard').innerHTML=(clashEvent.leaderboard||[]).length?clashEvent.leaderboard.map((x,n)=>'<p>'+(n+1)+'. <strong>'+esc(x.userId)+'</strong> — '+x.points+' points</p>').join(''):'<div class="empty">No approved points recorded yet.</div>';
     $('clashAudit').innerHTML=(clashEvent.audit||[]).map(x=>'<p class="small">'+new Date(x.at).toLocaleString()+' · '+esc(x.action)+' · '+esc(x.userId)+' · '+esc(x.details)+'</p>').join('')||'<div class="empty">No events recorded.</div>';
-    $('clashSubmissions').querySelectorAll('[data-cc-review]').forEach(b=>b.onclick=async()=>{let points=0;if(b.dataset.ccAction==='approve'){const maxPoints=b.dataset.ccType==='challenge'?3:b.dataset.ccType==='suggestion'?1:0;const v=prompt('Points for this submission (0 to '+maxPoints+')',String(maxPoints));if(v===null)return;points=Number(v);if(!Number.isInteger(points)||points<0||points>maxPoints){alert('Allowed points for this submission type: 0 to '+maxPoints+' is required.');return}}if(!confirm('Review this submission?'))return;try{await api('/api/community-clash/review',{method:'POST',body:JSON.stringify({csrf,guildId:activeGuild,submissionId:b.dataset.ccReview,action:b.dataset.ccAction,points,reason:'Reviewed from dashboard'})});clashStatus('clashActionStatus','Review completed.');await loadClash()}catch(err){clashStatus('clashActionStatus','Error: '+err.message)}});$('clashSubmissions').querySelectorAll('[data-cc-adjust]').forEach(b=>b.onclick=async()=>{const max=b.dataset.ccType==='challenge'?3:b.dataset.ccType==='suggestion'?1:0;const v=prompt('points New (0 to '+max+')',String(max));if(v===null)return;const reason=prompt('Reason Adjust Points (required)');if(!reason||!reason.trim()){alert('Reason تغییر الزامی is required.');return}try{await api('/api/community-clash/points',{method:'POST',body:JSON.stringify({csrf,guildId:activeGuild,submissionId:b.dataset.ccAdjust,points:Number(v),reason})});clashStatus('clashActionStatus','points Adjusted with reason recorded.');await loadClash()}catch(err){clashStatus('clashActionStatus','Error: '+err.message)}});
+    $('clashSubmissions').querySelectorAll('[data-cc-review]').forEach(b=>b.onclick=async()=>{let points=0;if(b.dataset.ccAction==='approve'){const maxPoints=b.dataset.ccType==='challenge'?3:b.dataset.ccType==='suggestion'?1:0;const v=prompt('Points for this submission (0 to '+maxPoints+')',String(maxPoints));if(v===null)return;points=Number(v);if(!Number.isInteger(points)||points<0||points>maxPoints){alert('Allowed points for this submission type: 0 to '+maxPoints+' is required.');return}}if(!confirm('Review this submission?'))return;try{await api('/api/community-clash/review',{method:'POST',body:JSON.stringify({csrf,guildId:activeGuild,submissionId:b.dataset.ccReview,action:b.dataset.ccAction,points,reason:'Reviewed from dashboard'})});clashStatus('clashActionStatus','Review completed.');await loadClash()}catch(err){clashStatus('clashActionStatus','Error: '+err.message)}});$('clashSubmissions').querySelectorAll('[data-cc-adjust]').forEach(b=>b.onclick=async()=>{const max=b.dataset.ccType==='challenge'?3:b.dataset.ccType==='suggestion'?1:0;const v=prompt('points New (0 to '+max+')',String(max));if(v===null)return;const reason=prompt('Reason Adjust Points (required)');if(!reason||!reason.trim()){alert('Reason A change is required.');return}try{await api('/api/community-clash/points',{method:'POST',body:JSON.stringify({csrf,guildId:activeGuild,submissionId:b.dataset.ccAdjust,points:Number(v),reason})});clashStatus('clashActionStatus','points Adjusted with reason recorded.');await loadClash()}catch(err){clashStatus('clashActionStatus','Error: '+err.message)}});
   }catch(e){$('clashOverview').textContent='Error: '+e.message}}
   $('clashCreateForm').onsubmit=async e=>{e.preventDefault();const b=e.submitter;b.disabled=true;clashStatus('clashCreateStatus','Creating channels, roles, and messages...');try{const end=Date.parse($('clashEndAt').value);if(!Number.isFinite(end)||end<=Date.now())throw new Error('End time must be in the future.');const d=await api('/api/community-clash/create',{method:'POST',body:JSON.stringify({csrf,guildId:activeGuild,title:$('clashTitle').value,description:$('clashDescription').value,question:$('clashQuestion').value,mission:$('clashMission').value,endsAt:end,winnerCount:Number($('clashWinners').value),roleDays:Number($('clashRoleDays').value)})});clashStatus('clashCreateStatus',d.message||'Event created.');await loadClash()}catch(err){clashStatus('clashCreateStatus','Error: '+err.message)}finally{b.disabled=false}};
   async function clashAction(action){if(action==='end'&&!confirm('Close submissions and prepare results for admin review?'))return;if(action==='confirm'&&!confirm('Confirm and announce the winners and grant their reward roles?'))return;clashStatus('clashActionStatus','Working...');try{const d=await api('/api/community-clash/action',{method:'POST',body:JSON.stringify({csrf,guildId:activeGuild,action})});clashStatus('clashActionStatus',d.message||'Action Done.');await loadClash()}catch(e){clashStatus('clashActionStatus','Error: '+e.message)}}
@@ -195,13 +195,13 @@ function attachDashboard(client) {
         const g=client.guilds.cache.get(String(b.guildId||""));
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"You do not have admin access to this server."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null),me=await g.members.fetchMe().catch(()=>g.members.me);
-        if(!actor||(!actor.permissions.has("Administrator")&&!actor.permissions.has("ManageChannels")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"برای ساخت channel باید دسترسی Channel Management داشته باشی."});
+        if(!actor||(!actor.permissions.has("Administrator")&&!actor.permissions.has("ManageChannels")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"You need Channel Management permission to create a channel."});
         if(!me?.permissions.has("ManageChannels"))return send(res,403,{error:"The bot does not have Manage Channels permission."});
         const name=String(b.name||"").trim().slice(0,100),type=String(b.type||"text"),topic=String(b.topic||"").trim().slice(0,1024),categoryId=String(b.categoryId||"");
-        if(!name)return send(res,400,{error:"Channel Name الزامی is required."});
+        if(!name)return send(res,400,{error:"Channel Name is required."});
         if(!["text","voice"].includes(type))return send(res,400,{error:"Channel Type is invalid."});
         let parent=null;
-        if(categoryId){parent=g.channels.cache.get(categoryId);if(!parent||parent.type!==4)return send(res,400,{error:"Category انتخاب‌شده is invalid."});}
+        if(categoryId){parent=g.channels.cache.get(categoryId);if(!parent||parent.type!==4)return send(res,400,{error:"Category The selected item is invalid."});}
         try{
           const channel=await g.channels.create({name,type:type==="voice"?2:0,parent:parent?.id||null,...(type==="text"&&topic?{topic}:{}),reason:"Created from dashboard by "+s.user.id});
           return send(res,200,{ok:true,message:"Channel “"+channel.name+"»  created successfully."});
@@ -255,9 +255,9 @@ function attachDashboard(client) {
           }
           if(url.pathname==="/api/community-clash/points"){
             const sid=String(b.submissionId||""),points=Number(b.points),reason=String(b.reason||"").trim();
-            if(!sid||!Number.isInteger(points)||points<0||!reason)return send(res,400,{error:"شناسه، points و Reason معتبر الزامی is required."});
+            if(!sid||!Number.isInteger(points)||points<0||!reason)return send(res,400,{error:"شناسه، points و Reason معتبر is required."});
             const event=await cc.adjust(gid,sid,points,s.user.id,reason);
-            return send(res,200,{ok:true,event,message:"Adjust Points با ثبت Reason Done."});
+            return send(res,200,{ok:true,event,message:"Adjust Points completed with reason recorded."});
           }
           return send(res,404,{error:"Community Clash route not found."});
         }catch(err){console.error("[dashboard] Community Clash:",err.message);return send(res,400,{error:String(err.message||"Action failed.").slice(0,400)});}
@@ -271,7 +271,7 @@ function attachDashboard(client) {
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"You do not have admin access to this server."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null),me=await g.members.fetchMe().catch(()=>g.members.me);
         if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"Only a server admin or dashboard owner can create roles."});
-        if(!me?.permissions.has("ManageRoles"))return send(res,403,{error:"بات مجوز Manage Roles ندارد."});
+        if(!me?.permissions.has("ManageRoles"))return send(res,403,{error:"The bot does not have Manage Roles permission."});
         const name=String(b.name||"").trim().slice(0,100),color=String(b.color||"#45e0a0").replace(/^#/,"");
         if(!name)return send(res,400,{error:"Role name is required."});
         if(!/^[0-9a-fA-F]{6}$/.test(color))return send(res,400,{error:"Invalid role color."});
@@ -291,7 +291,7 @@ function attachDashboard(client) {
         if(!g||!adminGuilds(s.userGuilds,s.user.id).some(x=>x.id===g.id))return send(res,403,{error:"You do not have admin access to this server."});
         const actor=await g.members.fetch(s.user.id).catch(()=>null),me=await g.members.fetchMe().catch(()=>g.members.me);
         if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"Only a server admin or dashboard owner can assign roles."});
-        if(!me?.permissions.has("ManageRoles"))return send(res,403,{error:"بات مجوز Manage Roles ندارد."});
+        if(!me?.permissions.has("ManageRoles"))return send(res,403,{error:"The bot does not have Manage Roles permission."});
         const uid=String(b.userId||""),rid=String(b.roleId||""),action=String(b.action||"add");
         if(!/^\d{17,20}$/.test(uid))return send(res,400,{error:"Invalid member ID."});
         if(!["add","remove"].includes(action))return send(res,400,{error:"Invalid role action."});
@@ -335,7 +335,7 @@ function attachDashboard(client) {
         const actor=await g.members.fetch(s.user.id).catch(()=>null),ch=g.channels.cache.get(String(b.channelId||""));
         if(!actor||(!actor.permissions.has("Administrator")&&!isPanelOwner(s.user.id)))return send(res,403,{error:"Only a server admin is allowed to do this."});
         if(!ch||![0,5].includes(ch.type)||!ch.isTextBased())return send(res,400,{error:"Invalid destination channel."});
-        if(!ch.permissionsFor(g.members.me)?.has("SendMessages")||!ch.permissionsFor(g.members.me)?.has("EmbedLinks"))return send(res,403,{error:"بات به مجوز Send Messages و Embed Links نیاز دارد."});
+        if(!ch.permissionsFor(g.members.me)?.has("SendMessages")||!ch.permissionsFor(g.members.me)?.has("EmbedLinks"))return send(res,403,{error:"The bot needs Send Messages and Embed Links permissions."});
         const description=String(b.description||"").trim().slice(0,4000),title=String(b.title||"").trim().slice(0,256),footer=String(b.footer||"").trim().slice(0,2048),hex=String(b.color||"45e0a0").replace(/^#/,"");
         if(!description)return send(res,400,{error:"Description is required."});if(!/^[0-9a-fA-F]{6}$/.test(hex))return send(res,400,{error:"Invalid HEX color."});
         const {EmbedBuilder}=require("discord.js"),embed=new EmbedBuilder().setDescription(description).setColor(parseInt(hex,16)).setTimestamp();
