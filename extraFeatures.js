@@ -162,7 +162,7 @@ async function handleInteraction(interaction,ctx){
       const result=await channel.bulkDelete(amount,true).catch(()=>null);
       return interaction.reply({content:"🧹 Deleted **"+(result?.size||0)+"** messages in <#"+channel.id+">.",ephemeral:true});
     }
-    const me=guild.members.me, roles=guild.roles.cache.filter(r=>!r.managed&&!r.isEveryone()&&r.position<me.roles.highest.position&&r.members.size===0); let count=0;
+    const me=guild.members.me, roles=guild.roles.cache.filter(r=>!r.managed&&r.id!==guild.id&&r.position<me.roles.highest.position&&r.members.size===0); let count=0;
     for(const r of roles.values())if(await r.delete("Cleanup unused role").then(()=>true).catch(()=>false))count++;
     return interaction.reply({content:"🧹 Removed **"+count+"** unused roles.",ephemeral:true});
   }
@@ -197,7 +197,7 @@ async function handleInteraction(interaction,ctx){
           levelChannel:channelRef(core.levelChannel,guild),
           logChannels:Object.fromEntries(["member","mod","server"].map(k=>[k,channelRef(core.logChannels?.[k]|| (k==="mod"?core.logs:null),guild)]))
         }:null;
-        const roles=guild.roles.cache.filter(r=>!r.managed&&!r.isEveryone())
+        const roles=guild.roles.cache.filter(r=>!r.managed&&r.id!==guild.id)
           .sort((a,b)=>a.position-b.position).map(r=>({
             name:r.name,color:r.hexColor,hoist:r.hoist,mentionable:r.mentionable,
             permissions:r.permissions.bitfield.toString()
