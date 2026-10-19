@@ -1594,7 +1594,7 @@ client.on("interactionCreate", async interaction => {
     }
     if (interaction.commandName === "unban") {
       const id=interaction.options.getString("user_id",true).trim();
-      if(!/^\\d{17,20}$/.test(id))return interaction.reply({content:"❌ Enter a valid Discord user ID (17–20 digits).",ephemeral:true});
+      if(!/^\d{17,20}$/.test(id))return interaction.reply({content:"❌ Enter a valid Discord user ID (17–20 digits).",ephemeral:true});
       if(!guild.members.me?.permissions.has(PermissionFlagsBits.BanMembers))return interaction.reply({content:"❌ I need the Ban Members permission to unban users.",ephemeral:true});
       const banned=await guild.bans.fetch(id).catch(()=>null);
       if(!banned)return interaction.reply({content:"ℹ️ That user is not currently banned from this server.",ephemeral:true});
