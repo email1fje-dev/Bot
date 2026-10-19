@@ -255,7 +255,7 @@ function attachDashboard(client) {
           }
           if(url.pathname==="/api/community-clash/points"){
             const sid=String(b.submissionId||""),points=Number(b.points),reason=String(b.reason||"").trim();
-            if(!sid||!Number.isInteger(points)||points<0||!reason)return send(res,400,{error:"شناسه، points و Reason معتبر is required."});
+            if(!sid||!Number.isInteger(points)||points<0||!reason)return send(res,400,{error:"A valid ID, points value, and reason are required."});
             const event=await cc.adjust(gid,sid,points,s.user.id,reason);
             return send(res,200,{ok:true,event,message:"Adjust Points completed with reason recorded."});
           }
