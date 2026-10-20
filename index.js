@@ -133,14 +133,20 @@ function serializeLogChannels(s) {
   return JSON.stringify(s.logChannels || {member:null, mod:s.logs || null, server:null});
 }
 
-function serializeWarnings(warnings) {
-  return Object.fromEntries(warnings.entries());
+function serializeWarnings(warnings, autoroleRoleId = null) {
+  const value = Object.fromEntries(warnings.entries());
+  if (autoroleRoleId) value.__autoroleRoleId = autoroleRoleId;
+  return value;
 }
 
 function deserializeWarnings(value) {
   const map = new Map();
   if (!value || typeof value !== "object") return map;
   for (const [userId, list] of Object.entries(value)) {
+    if (userId === "__autoroleRoleId") {
+      map.autoroleRoleId = typeof list === "string" ? list : null;
+      continue;
+    }
     map.set(userId, Array.isArray(list) ? list : []);
   }
   return map;
@@ -169,7 +175,8 @@ async function loadPersistentData() {
       welcome: row.welcome_channel_id,
       inviteLog: row.invite_log_channel_id,
       levelChannel: row.level_channel_id,
-      warnings: deserializeWarnings(row.warnings)
+      warnings: deserializeWarnings(row.warnings),
+      autoroleRoleId: deserializeWarnings(row.warnings).autoroleRoleId || null
     });
   }
 
@@ -205,7 +212,7 @@ async function saveGuildSettings(guildId) {
     welcome_channel_id: s.welcome,
     invite_log_channel_id: s.inviteLog,
     level_channel_id: s.levelChannel,
-    warnings: serializeWarnings(s.warnings),
+    warnings: serializeWarnings(s.warnings, s.autoroleRoleId),
     updated_at: new Date().toISOString()
   });
   if (error) console.error("Failed to save guild settings:", error.message);
@@ -406,7 +413,8 @@ function getSettings(guildId) {
       welcome: null,
       inviteLog: null,
       levelChannel: null,
-      warnings: new Map()
+      warnings: new Map(),
+      autoroleRoleId: null
     });
   }
   return settings.get(guildId);
@@ -1851,6 +1859,17 @@ client.on("guildMemberAdd", async member => {
   statBucket(member.guild.id).joins++;
   if(member.user.bot && s.antibot && member.id !== client.user.id){ await addModCase(member.guild.id,"AUTO_BOT",member.id,client.user.id,"Automatic bot-account protection"); await member.kick("Automatic bot-account protection").catch(()=>{}); return; }
   if(s.antiraid && Date.now()-member.user.createdTimestamp<86400000) await modLog(member.guild,"⚠️ New account joined: <@"+member.id+"> (under 24h old).","server");
+
+  // Auto-role is applied to new human members when configured from the dashboard.
+  if (!member.user.bot && s.autoroleRoleId) {
+    const role = member.guild.roles.cache.get(s.autoroleRoleId);
+    const me = member.guild.members.me;
+    if (role && !role.managed && role.id !== member.guild.id && me?.permissions.has(PermissionFlagsBits.ManageRoles) && role.position < me.roles.highest.position) {
+      await member.roles.add(role, "Automatic role on join").catch(error => console.warn("Autorole assignment failed:", error.message));
+    } else {
+      console.warn("Autorole skipped for guild " + member.guild.id + ": role missing or bot lacks role hierarchy/Manage Roles.");
+    }
+  }
 
   // Determine which invite was used by comparing cached usage counts.
   let usedInvite = null;
